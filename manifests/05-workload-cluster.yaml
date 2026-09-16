@@ -1,0 +1,24 @@
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  name: olvm-workloadcluster
+  namespace: cpaas-system
+  annotations:
+    cpaas.io/kube-ovn-join-cidr: 100.15.0.0/16
+    cpaas.io/registry-address: <existing-global-registry>:11443
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+        - 100.13.0.0/16
+    services:
+      cidrBlocks:
+        - 100.14.0.0/16
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+    kind: BaremetalCluster
+    name: olvm-workloadcluster
+  controlPlaneRef:
+    apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+    kind: KubeadmControlPlane
+    name: olvm-workloadcluster-control-plane

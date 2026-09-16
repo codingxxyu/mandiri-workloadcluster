@@ -1,0 +1,33 @@
+# Complete kubeadmConfigSpec must be verified against the ACP 4.3.2 Kubeadm Provider example.
+# Do not leave PROVIDER_ID or public-key placeholders before apply.
+apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+kind: KubeadmControlPlane
+metadata:
+  name: olvm-workloadcluster-control-plane
+  namespace: cpaas-system
+spec:
+  replicas: 3
+  version: v1.34.5
+  rolloutStrategy:
+    rollingUpdate:
+      maxSurge: 0
+    type: RollingUpdate
+  kubeadmConfigSpec:
+    format: cloud-config
+    users:
+      - name: boot
+        sshAuthorizedKeys:
+          - <deployment-ssh-public-key>
+    initConfiguration:
+      nodeRegistration:
+        kubeletExtraArgs:
+          provider-id: <ACP-4.3.2-provider-supported-value>
+    joinConfiguration:
+      nodeRegistration:
+        kubeletExtraArgs:
+          provider-id: <ACP-4.3.2-provider-supported-value>
+  machineTemplate:
+    infrastructureRef:
+      apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+      kind: BaremetalMachineTemplate
+      name: olvm-workloadcluster-control-plane-machine-template

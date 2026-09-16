@@ -1,0 +1,7 @@
+*.kubeconfig
+workload-kubeconfig
+*.key
+*.pem
+*.patch.json
+*.local.yaml
+.DS_Store

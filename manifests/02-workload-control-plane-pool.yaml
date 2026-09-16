@@ -1,0 +1,13 @@
+# Apply only after the three physical masters have booted the SeedImage,
+# registered as MachineInventory, and passed Ready/observedStorage checks.
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: MachineInventoryPool
+metadata:
+  name: olvm-workloadcluster-control-plane-pool
+  namespace: cpaas-system
+spec:
+  clusterName: olvm-workloadcluster
+  inventoryRefs:
+    - name: olvm-workloadcluster-2859b4f7-a97f-4f3b-a5c3-aad410030137
+    - name: olvm-workloadcluster-d6bbbcff-a3c9-4aee-8e2b-e78eca996b12
+    - name: olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62

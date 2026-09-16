@@ -1,0 +1,11 @@
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: BaremetalMachineTemplate
+metadata:
+  name: olvm-workloadcluster-control-plane-machine-template
+  namespace: cpaas-system
+spec:
+  template:
+    spec:
+      machineInventoryPoolRef:
+        name: olvm-workloadcluster-control-plane-pool
+      allocationPolicy: Ordered

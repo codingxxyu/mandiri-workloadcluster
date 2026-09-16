@@ -1,0 +1,11 @@
+# Verify External/Internal LB schema against ACP 4.3.2 CRD before apply.
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: BaremetalCluster
+metadata:
+  name: olvm-workloadcluster
+  namespace: cpaas-system
+spec:
+  controlPlaneLoadBalancer:
+    type: External
+    host: <workload-api-fqdn-or-vip>
+    port: 6443

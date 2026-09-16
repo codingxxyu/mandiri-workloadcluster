@@ -1,0 +1,16 @@
+# Input for the matching ACP 4.3.2 storagectl. This is NOT a standalone kubectl resource.
+storage:
+  retryNonce: 0
+  volumes:
+    - name: cpaas-data
+      source:
+        deviceID: <actual-stable-id-of-100g-data-disk>
+        minimumSize: 90Gi
+      filesystem:
+        policy: InitializeIfBlank
+        type: xfs
+      mount:
+        path: /var/cpaas
+        required: true
+        options:
+          - noatime

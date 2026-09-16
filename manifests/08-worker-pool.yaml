@@ -1,0 +1,11 @@
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: MachineInventoryPool
+metadata:
+  name: olvm-workloadcluster-worker-pool
+  namespace: cpaas-system
+spec:
+  clusterName: olvm-workloadcluster
+  inventoryRefs:
+    - name: <actual-worker-inventory-1>
+    - name: <actual-worker-inventory-2>
+    - name: <actual-worker-inventory-3>

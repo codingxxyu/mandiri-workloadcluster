@@ -1,0 +1,56 @@
+# Prepare now; apply when Worker physical servers are ready.
+apiVersion: elemental.cattle.io/v1beta1
+kind: MachineRegistration
+metadata:
+  name: olvm-workloadcluster-worker-registration
+  namespace: cpaas-system
+spec:
+  machineName: "olvm-workloadcluster-worker-${System Information/UUID}"
+  machineInventoryLabels:
+    app.kubernetes.io/part-of: cluster-api-provider-baremetal
+    pool.baremetal.alauda.io/eligible: "true"
+    cpaas.io/cluster-name: olvm-workloadcluster
+    cpaas.io/node-role: worker
+    elemental.cattle.io/serial-number: "${System Information/Serial Number}"
+  machineInventoryAnnotations:
+    elemental.cattle.io/machine-uuid: "${System Information/UUID}"
+  config:
+    elemental:
+      install:
+        device: /dev/elemental-install-target
+        eject-cd: true
+        reboot: true
+        snapshotter:
+          type: btrfs
+          maxSnaps: 4
+      registration:
+        emulate-tpm: true
+        emulated-tpm-seed: -1
+---
+apiVersion: elemental.cattle.io/v1beta1
+kind: SeedImage
+metadata:
+  name: olvm-workloadcluster-worker-registration-iso
+  namespace: cpaas-system
+spec:
+  type: iso
+  baseImage: <existing-global-registry>:11443/tkestack/baremetal-base-image-iso:v4.3.2-1-1.34.5-3
+  targetPlatform: linux/amd64
+  size: 20Gi
+  cleanupAfterMinutes: 120
+  registrationRef:
+    apiVersion: elemental.cattle.io/v1beta1
+    kind: MachineRegistration
+    name: olvm-workloadcluster-worker-registration
+    namespace: cpaas-system
+  cloud-config:
+    stages:
+      boot:
+        - files:
+            - path: /etc/elemental/config.d/partitions.yaml
+              permissions: 0644
+              content: |
+                install:
+                  partitions:
+                    state:
+                      size: 20480
