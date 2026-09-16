@@ -25,7 +25,7 @@ olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62
 100G → XFS 数据盘，挂载 /var/cpaas
 ```
 
-> 重要：提交到 `manifests/` 的是可审查模板。现场真实 Registry、External LB、SSH 公钥、provider-id 和每台 100G 稳定设备 ID 必须按本文命令获取后写入现场副本；未完成第 13 节检查前禁止 apply。
+> 重要：所有部署操作均按本文逐步手工执行，不依赖任何辅助脚本。现场真实 Registry、SSH 公钥、provider-id 和每台 100G 稳定设备 ID 必须先按本文命令取得，再直接编辑对应 YAML。External LB VIP 已确定为 `10.243.166.12`。未完成第 13 节检查前禁止 apply。
 
 ## 1. 执行位置和责任矩阵
 
@@ -35,7 +35,7 @@ olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62
 |---|---|---|
 | **[Global Master 01]** | `global-master01`，当前 `kubectl` 已连接 Global | 查询/修改 Kubernetes 资源、生成 storage patch、apply 集群 YAML |
 | **[三台 Master 都执行]** | 三台已注册的裸金属 Master 本机/BMC Console | 核对 300G 系统盘、100G 数据盘、observer、最终 `/var/cpaas` 挂载 |
-| **[LB/DNS 管理端]** | 客户负载均衡器和 DNS 管理界面 | 配置 External LB VIP/FQDN、TCP 6443 listener 和 DNS |
+| **[LB 管理端]** | 客户负载均衡器管理界面 | 核对 External LB VIP `10.243.166.12`、TCP 6443 listener 和三台 Master 后端 |
 | **[Workload kubeconfig]** | Global Master 01，但显式使用生成的 `workload-kubeconfig` | 检查业务集群 Node/Pod |
 
 ### 1.1 在 Global Master 01 执行
@@ -66,24 +66,23 @@ printf 'GLOBAL_REGISTRY=%s\n' "${GLOBAL_REGISTRY}"
 
 如果输出为空，停止执行，先确认 Global 的实际 Registry 配置。
 
-### 1.2 在 LB/DNS 管理端完成
+### 1.2 在 LB 管理端完成
 
-本方案选择 **External LB**。在继续创建 BaremetalCluster 前，必须准备一个 Workload API VIP/FQDN，并规划：
+本方案选择 **External LB**。现场已经配置 Workload API VIP `10.243.166.12` 和 TCP 6443 转发：
 
 ```text
 Protocol: TCP passthrough
-Frontend: 实际 Workload API VIP/FQDN 的 TCP 6443
+Frontend: 10.243.166.12:6443
 Backends: 三台裸金属 Master 的节点 IP:6443
-DNS: Workload API FQDN → VIP
 ```
 
-把实际入口记录在 Global Master 01：
+如果后续需要使用 FQDN，可另行创建 FQDN 到 `10.243.166.12` 的 DNS 解析；本次部署直接使用 VIP，不依赖 DNS。部署时在 Global Master 01 记录该入口：
 
 ```bash
-export WORKLOAD_API_ENDPOINT='填写实际Workload-API-VIP或FQDN'
+export WORKLOAD_API_ENDPOINT='10.243.166.12'
 ```
 
-这里必须替换成现场真实值，不是原样复制命令。
+后续 `BaremetalCluster` 和连通性检查均使用该 VIP。
 
 ### 1.3 Global Master 01 上的 SSH 公钥
 
@@ -113,17 +112,46 @@ export BM_STORAGECTL=/实际/绝对路径/storagectl
 
 在找到匹配的 `storagectl` 前，**停止 100G `/var/cpaas` 初始化流程，不把三台 Inventory 加入 Pool**。
 
-### 1.5 可选：生成不含通用占位符的现场副本
+### 1.5 手工填写 YAML 的规则
 
-`provider-id` 必须来自 ACP 4.3.2 官方 Bare Metal Kubeadm 示例，不能猜测。确认后，在 Global Master 01 执行：
+本项目不使用渲染或部署脚本。所有修改都在 **Global Master 01** 上手工完成，并在 apply 前逐个检查。
+
+先记录后续要写入 YAML 的现场值：
 
 ```bash
-export PROVIDER_ID_VALUE='实际官方支持值'
-export WORKLOAD_API_ENDPOINT='实际VIP或FQDN'
-./scripts/prepare-on-global.sh
+printf 'Global Registry: %s\n' "${GLOBAL_REGISTRY}"
+printf 'SSH public key file: %s\n' "${SSH_PUBLIC_KEY_FILE}"
+printf 'Workload API VIP: 10.243.166.12\n'
 ```
 
-脚本会自动读取 Global Registry 和 `/root/.ssh/*.pub`，输出到忽略提交的 `rendered/`。Inventory 名和每台 100G 稳定设备 ID 仍必须按后续现场检查填写。
+需要手工修改的文件和字段：
+
+| 文件 | 要修改或确认的字段 | 值的来源 |
+|---|---|---|
+| `manifests/01-workload-registration-seedimage.yaml` | `SeedImage.spec.baseImage` | `${GLOBAL_REGISTRY}/tkestack/baremetal-base-image-iso:v4.3.2-1-1.34.5-3` |
+| `manifests/03-workload-baremetal-cluster.yaml` | `spec.controlPlaneLoadBalancer.host` | 已填写 `10.243.166.12` |
+| `manifests/05-workload-cluster.yaml` | `metadata.annotations.cpaas.io/registry-address` | `${GLOBAL_REGISTRY}` 的实际输出 |
+| `manifests/06-workload-control-plane.yaml` | `sshAuthorizedKeys` | `${SSH_PUBLIC_KEY}` 的实际完整输出 |
+| `manifests/06-workload-control-plane.yaml` | init/join 的 `provider-id` | ACP 4.3.2 官方 Bare Metal Kubeadm 示例；禁止猜测 |
+| 每台主机的 Storage 输入文件 | `source.deviceID` | 对应 Inventory 的约 100G `systemRole=Data` 稳定设备 ID |
+
+在 Global Master 01 上使用 `vi` 或 `vim` 逐个编辑，例如：
+
+```bash
+vi manifests/01-workload-registration-seedimage.yaml
+vi manifests/05-workload-cluster.yaml
+vi manifests/06-workload-control-plane.yaml
+```
+
+编辑时把实际文本写进 YAML，不要把 `${GLOBAL_REGISTRY}`、`${SSH_PUBLIC_KEY}` 这些 shell 变量名写进 YAML。保存后逐个检查：
+
+```bash
+kubectl apply --dry-run=server -f manifests/01-workload-registration-seedimage.yaml
+kubectl apply --dry-run=server -f manifests/05-workload-cluster.yaml
+kubectl apply --dry-run=server -f manifests/06-workload-control-plane.yaml
+```
+
+`01` 是已经完成注册时使用的定义；只有在现场需要重建 Registration/SeedImage 时才 apply。当前三台 Master 已注册，正常续接部署不重复 apply `01`。
 
 ## 2. 先确认 Image Catalog
 
@@ -356,7 +384,7 @@ kubectl -n cpaas-system \
 spec:
   controlPlaneLoadBalancer:
     type: External
-    host: ${WORKLOAD_API_ENDPOINT}
+    host: 10.243.166.12
     port: 6443
 ```
 
@@ -495,7 +523,7 @@ Worker 创建前必须替换 Worker Inventory、SSH key 和 provider-id 占位�
 - 任一 Inventory 未达到 Prepared；
 - Pool available 小于 3；
 - Registry、Image Catalog、LB、CIDR 或 provider-id 未确认；
-- `grep -RInE '<[^>]+>|填写实际|PROVIDER_ID' manifests rendered` 有任何输出。
+- 要 apply 的 YAML 中仍存在 `<...>`、`填写实际` 或 `PROVIDER_ID` 占位内容。
 
 ## 13. Apply 前逐机与网络检查清单
 
@@ -514,7 +542,12 @@ kubectl -n cpaas-system get machineinventorypool -o wide
 检查 YAML 中仍未替换的值：
 
 ```bash
-grep -RInE '<[^>]+>|填写实际|PROVIDER_ID' manifests rendered 2>/dev/null
+grep -nE '<[^>]+>|填写实际|PROVIDER_ID' \
+  manifests/02-workload-control-plane-pool.yaml \
+  manifests/03-workload-baremetal-cluster.yaml \
+  manifests/04-workload-control-plane-machine-template.yaml \
+  manifests/05-workload-cluster.yaml \
+  manifests/06-workload-control-plane.yaml
 ```
 
 有任何输出都停止 apply。逐个阅读将要 apply 的 YAML：
@@ -555,25 +588,24 @@ chronyc tracking
 - 100G 盘确实为空并批准 InitializeIfBlank，或者切换为 Adopt；
 - 没有把任何已有业务数据盘误选为安装盘或初始化盘。
 
-### 13.3 [LB/DNS 管理端] 执行
+### 13.3 [LB 管理端] 执行
 
-在负载均衡器上创建并检查：
+现场已完成转发配置，部署前重新核对：
 
 ```text
-Frontend: 实际 Workload API VIP/FQDN:6443
+Frontend: 10.243.166.12:6443
 Protocol: TCP passthrough
 Backends: 三台 Master 节点 IP:6443
-Health check: 根据客户 LB 能力和 Kubernetes API TCP 检查策略
+Health check: 根据客户 LB 能力使用 Kubernetes API TCP 检查策略
 ```
 
-在 DNS 管理端创建 FQDN → VIP 解析。在 Global Master 01 验证：
+在 Global Master 01 验证 VIP：
 
 ```bash
-getent hosts "${WORKLOAD_API_ENDPOINT}"
-nc -vz "${WORKLOAD_API_ENDPOINT}" 6443
+nc -vz 10.243.166.12 6443
 ```
 
-在 KCP 启动前，TCP 6443 可能因为后端尚未监听而失败，但 DNS 必须解析到正确 VIP；KCP 启动后必须成功。
+在 KCP 启动前，因为后端尚未监听，TCP 6443 检查可能失败；KCP 启动后必须成功。若配置了 FQDN，再额外用 `getent hosts <实际FQDN>` 确认其解析为 `10.243.166.12`。
 
 ### 13.4 [Global Master 01] 创建 CP 后执行
 

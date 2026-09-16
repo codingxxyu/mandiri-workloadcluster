@@ -9,7 +9,7 @@ registry:
   base_image: <existing-global-registry>:11443/tkestack/baremetal-base-image:v4.3.2-1-1.34.5-3
   base_image_iso: <existing-global-registry>:11443/tkestack/baremetal-base-image-iso:v4.3.2-1-1.34.5-3
 network:
-  api_host: <workload-api-fqdn-or-vip>
+  api_host: 10.243.166.12
   api_port: 6443
   pods_cidr: 100.13.0.0/16
   services_cidr: 100.14.0.0/16
@@ -17,9 +17,9 @@ network:
 control_plane:
   replicas: 3
   inventories:
-    - <actual-cp-inventory-1>
-    - <actual-cp-inventory-2>
-    - <actual-cp-inventory-3>
+    - olvm-workloadcluster-2859b4f7-a97f-4f3b-a5c3-aad410030137
+    - olvm-workloadcluster-d6bbbcff-a3c9-4aee-8e2b-e78eca996b12
+    - olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62
   install_device: /dev/elemental-install-target
   cos_state_size_mib: 20480
   data_disk:

@@ -5,4 +5,3 @@ workload-kubeconfig
 *.patch.json
 *.local.yaml
 .DS_Store
-rendered/
