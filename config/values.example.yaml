@@ -2,7 +2,10 @@
 # Do not commit passwords, kubeconfigs, private keys, or customer secrets.
 namespace: cpaas-system
 cluster_name: olvm-workloadcluster
-kubernetes_version: v1.34.5
+# Values from the ACP OS support matrix for ACP v4.3.2.
+acp_version: v4.3.2
+kubernetes_version: v1.34.5-3
+etcd_version: v3.5.28-260625
 architecture: linux/amd64
 registry:
   address: <existing-global-registry>:11443

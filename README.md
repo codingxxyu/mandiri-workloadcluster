@@ -4,6 +4,19 @@
 
 ## 当前状态
 
+版本以官方 OS 支持矩阵为准（ACP `v4.3.2`）：
+
+```text
+ACP:            v4.3.2
+Kubernetes:     v1.34.5-3
+etcd:           v3.5.28-260625
+containerd:     2.2.1-5
+coredns:        1.14.2-v4.3.11
+pause:          3.10
+kube-ovn chart: v4.3.11
+OS image tag:   v4.3.2-1-1.34.5-3
+```
+
 已完成：
 
 - 现有 Global 集群可用；
@@ -48,7 +61,9 @@ kubectl get nodes -o wide
 
 export BM_NS=cpaas-system
 export CLUSTER_NAME=olvm-workloadcluster
-export KUBERNETES_VERSION=v1.34.5
+export ACP_VERSION=v4.3.2
+export KUBERNETES_VERSION=v1.34.5-3
+export ETCD_VERSION=v3.5.28-260625
 export OS_IMAGE_TAG=v4.3.2-1-1.34.5-3
 ```
 
@@ -164,7 +179,7 @@ kubectl \
 
 ```yaml
 data:
-  v1.34.5: ${GLOBAL_REGISTRY}/tkestack/baremetal-base-image:v4.3.2-1-1.34.5-3
+  v1.34.5-3: ${GLOBAL_REGISTRY}/tkestack/baremetal-base-image:v4.3.2-1-1.34.5-3
 ```
 
 如果没有，使用 merge patch，保留已有版本：
@@ -416,7 +431,7 @@ spec:
 ```yaml
 spec:
   replicas: 3
-  version: v1.34.5
+  version: v1.34.5-3
   rolloutStrategy:
     rollingUpdate:
       maxSurge: 0
@@ -429,6 +444,22 @@ spec:
 - 按 ACP 4.3.2 正式 Kubeadm Provider 示例补齐/核对 `kubeadmConfigSpec`。
 
 不能把这些占位符直接 apply。
+
+官方“步骤 3：创建控制平面集群资源”对应本项目 4 个文件，必须按下面顺序创建：
+
+| 官方资源 | 本项目文件 | 作用 |
+|---|---|---|
+| `BaremetalCluster` | `manifests/03-workload-baremetal-cluster.yaml` | 声明 Workload API 入口。本方案用 `External`，VIP 为 `10.243.166.12:6443` |
+| `BaremetalMachineTemplate` | `manifests/04-workload-control-plane-machine-template.yaml` | 指向控制平面 Pool，决定从哪 3 台已注册 Inventory 分配 Master |
+| `Cluster` | `manifests/05-workload-cluster.yaml` | CAPI 总对象，把 BaremetalCluster 和 KubeadmControlPlane 绑在一起 |
+| `KubeadmControlPlane` | `manifests/06-workload-control-plane.yaml` | 声明 3 个 Master 副本、Kubernetes 版本和 kubeadm 配置 |
+
+本方案选择 `External`，不是 `Internal`：
+
+- `External`：provider 不部署 Alive，不接管 VIP。客户 LB 维护 `10.243.166.12:6443` 以及三台 Master 后端。
+- `Internal`：provider 部署 Alive，并自己协调 VIP 和后端。本次不使用。
+
+前置条件：`manifests/02-workload-control-plane-pool.yaml` 必须已经 apply，并且 Pool Ready。`02` 不是官方第 3 步里的 4 个资源之一，但没有它，`BaremetalMachineTemplate` 无法从 Pool 分配机器。
 
 ## 9. 创建 Workload Control Plane
 
@@ -537,7 +568,7 @@ kubectl -n cpaas-system get machineinventories.elemental.cattle.io -o wide
 kubectl -n cpaas-system get machineinventorypool -o wide
 ```
 
-确认：当前是 Global Master 01；Image Catalog 有 v1.34.5；三台 Master Inventory 名字与 Pool YAML 完全一致；Inventory 未分配且 storage Prepared。
+确认：当前是 Global Master 01；Image Catalog 有 `v1.34.5-3`；三台 Master Inventory 名字与 Pool YAML 完全一致；Inventory 未分配且 storage Prepared。
 
 检查 YAML 中仍未替换的值：
 

@@ -14,7 +14,7 @@ spec:
       labels:
         cluster.x-k8s.io/deployment-name: olvm-workloadcluster-worker-deployment
     spec:
-      version: v1.34.5
+      version: v1.34.5-3
       bootstrap:
         configRef:
           apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
