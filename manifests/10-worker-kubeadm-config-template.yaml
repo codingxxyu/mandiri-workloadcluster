@@ -29,6 +29,8 @@ spec:
               "streamingConnectionIdleTimeout": "5m",
               "clientCAFile": "/etc/kubernetes/pki/ca.crt"
             }
+      preKubeadmCommands:
+        - 'grep -q cloud.alauda.io /etc/hosts || echo "127.0.0.1 cloud.alauda.io" >> /etc/hosts'
       joinConfiguration:
         patches:
           directory: /etc/kubernetes/patches
