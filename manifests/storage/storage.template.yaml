@@ -1,16 +1,19 @@
-# Input for the matching ACP 4.3.2 storagectl. This is NOT a standalone kubectl resource.
+# Optional post-cluster reference only.
+# Do not apply this during control-plane Pool / Cluster / KCP creation.
+# Extra disks are mounted on the node after the cluster is Ready.
+# If a later site explicitly asks for Storage v2, replace deviceID first.
 storage:
   retryNonce: 0
   volumes:
-    - name: cpaas-data
+    - name: extra-data
       source:
-        deviceID: <actual-stable-id-of-100g-data-disk>
+        deviceID: <actual-stable-id-of-extra-disk>
         minimumSize: 90Gi
       filesystem:
         policy: InitializeIfBlank
         type: xfs
       mount:
-        path: /var/cpaas
-        required: true
+        path: <business-mount-path>
+        required: false
         options:
           - noatime

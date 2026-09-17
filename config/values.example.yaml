@@ -26,11 +26,8 @@ control_plane:
     - olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62
   install_device: /dev/elemental-install-target
   cos_state_size_mib: 20480
-  data_disk:
-    device_id: <actual-100g-stable-device-id>
-    filesystem: xfs
-    mount_path: /var/cpaas
-    policy: InitializeIfBlank
+  # Extra disks are mounted on the node after the cluster is Ready.
+  # Do not declare them in MachineInventory.spec.storage during deploy.
 workers:
   replicas: 3
   inventories:

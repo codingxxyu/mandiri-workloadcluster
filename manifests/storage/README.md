@@ -1,10 +1,12 @@
-# 100G `/var/cpaas` Data Disk
+# Optional data-disk notes
 
-The three registered masters each have a 300G system disk and a 100G data disk.
+Deployment no longer requires Storage v2 or `storagectl` before creating the control-plane Pool.
 
-- 300G: Alauda OS installation disk selected by `MachineRegistration.spec.config.elemental.install.device`.
-- 100G: managed data disk mounted at `/var/cpaas` through `MachineInventory.spec.storage`.
+R&D guidance for this site:
 
-Do not guess the 100G disk ID and do not use `/dev/sdb`. For each inventory, read `status.observedStorage.devices[]` and select the actual stable ID whose `systemRole` is `Data` and size is approximately 100G.
+- During install, only pin the OS disk with `/dev/elemental-install-target`.
+- Extra disks are not declared in `MachineInventory.spec.storage`.
+- After the workload cluster is Ready, log into the node and mount extra disks as needed.
+- Later OS or cluster upgrades do not depend on that extra-disk layout.
 
-Copy `storage.template.yaml` once per master, replace the stable `deviceID`, and use the matching ACP 4.3.2 `storagectl` to render an atomic patch. `InitializeIfBlank` may format the selected disk and therefore requires explicit approval. Full commands are in the root README.
+`storage.template.yaml` is kept only as an optional reference. Do not treat it as a required deployment gate.

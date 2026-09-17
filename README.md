@@ -40,7 +40,7 @@ olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62
 后续 OS/集群升级不依赖这块数据盘规划。
 ```
 
-> 重要：所有部署操作均按本文逐步手工执行，不依赖任何辅助脚本。现场真实 Registry、SSH 公钥和 provider-id 必须先按本文命令取得，再直接编辑对应 YAML。External LB VIP 已确定为 `10.243.166.12`。未完成第 13 节检查前禁止 apply。
+> 重要：所有部署操作均按本文逐步手工执行，不依赖任何辅助脚本。现场真实 Registry 和 SSH 公钥必须先按本文命令取得，再直接编辑对应 YAML。External LB VIP 已确定为 `10.243.166.12`。未完成第 13 节检查前禁止 apply。
 
 ## 1. 执行位置和责任矩阵
 
@@ -48,8 +48,8 @@ olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62
 
 | 标记 | 在哪里执行 | 用途 |
 |---|---|---|
-| **[Global Master 01]** | `global-master01`，当前 `kubectl` 已连接 Global | 查询/修改 Kubernetes 资源、生成 storage patch、apply 集群 YAML |
-| **[三台 Master 都执行]** | 三台已注册的裸金属 Master 本机/BMC Console | 核对 300G 系统盘、100G 数据盘、observer、最终 `/var/cpaas` 挂载 |
+| **[Global Master 01]** | `global-master01`，当前 `kubectl` 已连接 Global | 查询/修改 Kubernetes 资源、检查 MachineInventory、apply 集群 YAML |
+| **[三台 Master 都执行]** | 三台已注册的裸金属 Master 本机/BMC Console | 核对 ISO 已弹出、从系统盘启动、系统盘挂载正常；集群 Ready 后再手工挂数据盘 |
 | **[LB 管理端]** | 客户负载均衡器管理界面 | 核对 External LB VIP `10.243.166.12`、TCP 6443 listener 和三台 Master 后端 |
 | **[Workload kubeconfig]** | Global Master 01，但显式使用生成的 `workload-kubeconfig` | 检查业务集群 Node/Pod |
 
@@ -71,7 +71,7 @@ export OS_IMAGE_TAG=v4.3.2-1-1.34.5-3
 
 `hostname` 必须确认当前是 `global-master01`；`kubectl cluster-info` 必须指向现有 Global。本文不需要额外 kubeconfig 路径。
 
-自动读取 Global Registry：
+读取 Global Registry：
 
 ```bash
 export GLOBAL_REGISTRY="$(kubectl -n cpaas-system get cluster global \
@@ -112,24 +112,7 @@ export SSH_PUBLIC_KEY="$(tr -d '\n' < "${SSH_PUBLIC_KEY_FILE}")"
 printf 'SSH_PUBLIC_KEY_FILE=%s\n' "${SSH_PUBLIC_KEY_FILE}"
 ```
 
-### 1.4 storagectl 当前尚未找到
-
-在 **Global Master 01** 查找：
-
-```bash
-find /root /opt /usr/local/bin /var/cpaas -type f -name storagectl 2>/dev/null
-```
-
-找到后验证来源和版本必须与当前 ACP 4.3.2 Bare Metal Provider revision 匹配，再设置：
-
-```bash
-export BM_STORAGECTL=/实际/绝对路径/storagectl
-"${BM_STORAGECTL}" --help
-```
-
-在找到匹配的 `storagectl` 前，**停止 100G `/var/cpaas` 初始化流程，不把三台 Inventory 加入 Pool**。
-
-### 1.5 手工填写 YAML 的规则
+### 1.4 手工填写 YAML 的规则
 
 本项目不使用渲染或部署脚本。所有修改都在 **Global Master 01** 上手工完成，并在 apply 前逐个检查。
 
@@ -149,13 +132,11 @@ printf 'Workload API VIP: 10.243.166.12\n'
 | `manifests/03-workload-baremetal-cluster.yaml` | `spec.controlPlaneLoadBalancer.host` | 已填写 `10.243.166.12` |
 | `manifests/05-workload-cluster.yaml` | `metadata.annotations.cpaas.io/registry-address` | `${GLOBAL_REGISTRY}` 的实际输出 |
 | `manifests/06-workload-control-plane.yaml` | `sshAuthorizedKeys` | `${SSH_PUBLIC_KEY}` 的实际完整输出 |
-| `manifests/06-workload-control-plane.yaml` | init/join 的 `provider-id` | ACP 4.3.2 官方 Bare Metal Kubeadm 示例；禁止猜测 |
-| 每台主机的 Storage 输入文件 | `source.deviceID` | 对应 Inventory 的约 100G `systemRole=Data` 稳定设备 ID |
+| 多盘主机系统盘 | Live ISO 上的 `/dev/elemental-install-target` | 该主机系统盘的 `/dev/disk/by-id/wwn-*` |
 
 在 Global Master 01 上使用 `vi` 或 `vim` 逐个编辑，例如：
 
 ```bash
-vi manifests/01-workload-registration-seedimage.yaml
 vi manifests/05-workload-cluster.yaml
 vi manifests/06-workload-control-plane.yaml
 ```
@@ -163,7 +144,6 @@ vi manifests/06-workload-control-plane.yaml
 编辑时把实际文本写进 YAML，不要把 `${GLOBAL_REGISTRY}`、`${SSH_PUBLIC_KEY}` 这些 shell 变量名写进 YAML。保存后逐个检查：
 
 ```bash
-kubectl apply --dry-run=server -f manifests/01-workload-registration-seedimage.yaml
 kubectl apply --dry-run=server -f manifests/05-workload-cluster.yaml
 kubectl apply --dry-run=server -f manifests/06-workload-control-plane.yaml
 ```
@@ -195,7 +175,66 @@ kubectl \
 
 `elemental-image-catalog` 使用 `base-image`；SeedImage 使用 `base-image-iso`。
 
-## 3. 确认三台 Inventory 未被分配
+## 3. SeedImage 安装后必须检查 OS 是否正常
+
+三台 Master 已经从 SeedImage 安装并注册。加入 Pool 前，先确认每台机器已经离开 Live ISO，并从系统盘正常启动。
+
+现场常见坑：ISO 没弹出、启动项仍指向虚拟光驱、或 Inventory 上看不到正常磁盘布局。这类主机不要加入 Pool。
+
+### 3.1 [BMC] 安装触发重启后立即处理启动项
+
+每台物理机安装完成后会 reboot。在 BMC/iDRAC/iLO 上逐台执行：
+
+1. 弹出/卸载 SeedImage 虚拟介质（虚拟 CD/ISO）。
+2. 把启动顺序改回 disk-first，不要继续从虚拟光驱启动。
+3. 确认下一次启动进入已安装的 Alauda OS，而不是再次进入 Live ISO。
+
+不要在仍挂着 ISO 的情况下检查 MachineInventory 是否 Ready。
+
+### 3.2 [三台 Master 都执行] 确认已经不是 Live ISO
+
+登录已安装系统，不要登录 Live ISO 控制台：
+
+```bash
+hostname
+findmnt -n -o SOURCE,FSTYPE,TARGET /
+findmnt /run/initramfs/live || echo NO_LIVE_ISO_ROOT
+lsblk -e7 -o NAME,PATH,TYPE,SIZE,MODEL,SERIAL,WWN,FSTYPE,LABEL,MOUNTPOINTS
+```
+
+必须同时满足：
+
+- `/` 不是 `LiveOS_rootfs`。
+- 没有 `/run/initramfs/live` 这类 Live ISO root。
+- 虚拟光驱（常见 `/dev/sr0`）上不应再挂着 `COS_LIVE` 作为当前运行系统。
+- 系统盘上能看到 Elemental 分区布局，例如 `COS_STATE` / `COS_OEM` / `COS_RECOVERY` / `COS_PERSISTENT`。
+- 额外数据盘可以存在，但这一步不要格式化，也不要挂到业务路径。
+
+如果 `/` 仍是 Live ISO，停止。回到 BMC 弹出 ISO，改启动项，再重启。
+
+### 3.3 [Global Master 01] 检查 MachineInventory
+
+```bash
+kubectl -n cpaas-system get machineinventories.elemental.cattle.io -o wide
+
+for inventory in \
+  olvm-workloadcluster-2859b4f7-a97f-4f3b-a5c3-aad410030137 \
+  olvm-workloadcluster-d6bbbcff-a3c9-4aee-8e2b-e78eca996b12 \
+  olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62
+do
+  echo "===== ${inventory} ====="
+  kubectl -n cpaas-system describe machineinventory.elemental.cattle.io "${inventory}"
+done
+```
+
+每台都要满足：
+
+- `Ready=True`
+- 报告了预期网络/IP
+- 只有一套当前 Elemental 磁盘布局
+- allocation 为空或 `Available`
+- owner 字段为空
+- plan Secret 存在
 
 ```bash
 for inventory in \
@@ -209,169 +248,74 @@ do
 done
 ```
 
-要求：allocation 为空或 `Available`；owner 字段为空；plan Secret 存在。不要手动删除 owner annotation 或 finalizer。
+不要手动删除 owner annotation 或 finalizer。某些 Inventory 在 ISO 未卸载、仍从虚拟光驱启动时，会看不到正常磁盘挂载/布局。这类 Inventory 不要加入 Pool。
 
-## 4. 识别每台主机的 300G/100G 磁盘
+## 4. 多盘主机只固定系统盘
 
-300G 系统盘应在 SeedImage 安装前通过稳定别名 `/dev/elemental-install-target` 指定。该路径不会自动选择最大盘，必须在每台服务器上确认其实际指向 300G 系统盘。
+官方文档：<https://docs.alauda.cn/immutable-infra/1.0/how-to/configure-fixed-install-disk-bare-metal.html>
 
-在主机上：
+研发确认：部署阶段不单独规划额外数据盘。有多块磁盘、大小不同时，只需要用 WWN 把门禁指到系统盘。数据盘等集群起来后，再登录节点手工挂载；后续升级不受影响。
 
-```bash
-readlink -f /dev/elemental-install-target
-lsblk -o NAME,SIZE,MODEL,SERIAL,WWN,FSTYPE,MOUNTPOINTS
-```
+不要把 `MachineRegistration.spec.config.elemental.install.device` 留空，也不要用 `/dev/sda`。空 device 会让 Elemental 自动选盘；`/dev/sda` 在 Live ISO 和已安装系统之间可能互换。
 
-100G 数据盘从 Inventory observer 报告中识别，不使用 `/dev/sdb`：
-
-```bash
-export BM_INVENTORY=olvm-workloadcluster-2859b4f7-a97f-4f3b-a5c3-aad410030137
-
-kubectl -n "${BM_NS}" \
-  get machineinventory.elemental.cattle.io "${BM_INVENTORY}" -o json \
-  | jq -r '.status.observedStorage.devices[] |
-      [.id,.kind,.systemRole,(.sizeBytes|tostring),(.filesystem.type//"-"),
-       (.filesystem.uuid//"-"),([.mounts[].path]|join(","))] | @tsv'
-```
-
-只选择：
-
-- `systemRole=Data`；
-- 容量约 100G；
-- 稳定 ID：`wwn:`、`nvme-eui:`、`nvme-nguid:`、observer 批准的 `serial:`、`partuuid:` 或 `wwid:`；
-- 不是 system/Unknown、只读盘、multipath 成员、LVM/RAID/LUKS/swap 或意外挂载盘。
-
-在主机确认 observer：
-
-```bash
-sudo systemctl is-enabled elemental-storage-observer.service
-sudo systemctl is-active elemental-storage-observer.service
-```
-
-## 5. 为 100G `/var/cpaas` 准备 Storage v2
-
-模板：`manifests/storage/storage.template.yaml`。
-
-关键片段：
+共享 ISO 使用同一个不存在的路径：
 
 ```yaml
-storage:
-  retryNonce: 0
-  volumes:
-    - name: cpaas-data
-      source:
-        deviceID: 填写当前Inventory观测到的100G稳定设备ID
-        minimumSize: 90Gi
-      filesystem:
-        policy: InitializeIfBlank
-        type: xfs
-      mount:
-        path: /var/cpaas
-        required: true
-        options: [noatime]
+spec:
+  config:
+    elemental:
+      install:
+        device: /dev/elemental-install-target
+        eject-cd: true
+        reboot: true
 ```
 
-这里使用 `InitializeIfBlank`，前提是 100G 盘确实为空且允许格式化。如果已有文件系统或数据，必须改用 `Adopt` 并提供正确 `expectedUUID`。`/var/cpaas` 必须是 required volume。
+Live ISO 启动后，该路径故意不存在，安装服务不会自动选盘。每台主机在 Live ISO 控制台里，把这个路径链到该主机系统盘的 WWN。
 
-每台 Inventory 分别执行。先准备变量：
+### 4.1 [三台 Master 都执行] 在 Live ISO 上创建安装目标
+
+清理并确认目标整盘后：
 
 ```bash
-export BM_INVENTORY=olvm-workloadcluster-2859b4f7-a97f-4f3b-a5c3-aad410030137
-export BM_STORAGECTL=/实际/绝对路径/storagectl
-export BM_STORAGE_FILE=/tmp/${BM_INVENTORY}-storage.yaml
-export BM_INVENTORY_FILE=/tmp/${BM_INVENTORY}.json
-export BM_PATCH_FILE=/tmp/${BM_INVENTORY}-storage.patch.json
+ls -l /dev/disk/by-id/wwn-*
+lsblk -d -e7 -o NAME,PATH,SIZE,MODEL,SERIAL,WWN,HCTL
 
-cp manifests/storage/storage.template.yaml "${BM_STORAGE_FILE}"
-# 编辑 BM_STORAGE_FILE，替换为这台主机的真实 100G stable deviceID
+test ! -e /dev/elemental-install-target
+test ! -L /dev/elemental-install-target
+
+ln -s \
+  /dev/disk/by-id/wwn-把这里换成该主机系统盘的实际WWN \
+  /dev/elemental-install-target
+
+readlink -f /dev/elemental-install-target
+test -b /dev/elemental-install-target && echo TARGET_IS_BLOCK
+lsblk -d -o NAME,PATH,SIZE,MODEL,SERIAL,WWN,HCTL \
+  "$(readlink -f /dev/elemental-install-target)"
 ```
 
-检查初始化权限：
+确认输出的是系统盘，不是数据盘。这个符号链接只存在于当前 Live ISO 会话，重启后会消失；已安装系统正常启动不需要它。
 
-```bash
-kubectl auth can-i update \
-  machineinventories.elemental.cattle.io \
-  --subresource=storageinitialize -n "${BM_NS}"
-```
+当前三台 Master 如果已经完成安装并离开 Live ISO，不要再回 Live ISO 重建这个链接。本节只用于复查或重装。
 
-必须返回 `yes`。
+## 5. 数据盘放到集群 Ready 之后
 
-获取 live Inventory：
+本方案部署阶段不使用 Storage v2 / `storagectl` 提前声明数据盘，也不把 `/var/cpaas` 作为加入 Pool 的前置条件。
 
-```bash
-kubectl -n "${BM_NS}" \
-  get machineinventory.elemental.cattle.io "${BM_INVENTORY}" -o json \
-  > "${BM_INVENTORY_FILE}"
-```
+原因：
 
-读取计数器：
+- 系统盘由 `/dev/elemental-install-target` 固定即可。
+- 额外数据盘可以等节点加入集群后再在节点上挂载。
+- 研发确认这种后挂方式不影响后续升级。
 
-```bash
-jq '.status.storage.lastConsumedInitializationApprovalCounter // 0' \
-  "${BM_INVENTORY_FILE}"
-```
+`manifests/storage/` 仅保留作可选参考，不是当前部署必做步骤。
 
-读取当前值后计算下一个计数器，用相同 Provider revision 的 `storagectl` 生成 patch：
+## 6. 加入 Pool 前的 Inventory 结论
 
-```bash
-export NEXT_COUNTER="$(jq -r '(.status.storage.lastConsumedInitializationApprovalCounter // 0) + 1' "${BM_INVENTORY_FILE}")"
-printf 'NEXT_COUNTER=%s\n' "${NEXT_COUNTER}"
-```
-
-```bash
-"${BM_STORAGECTL}" hash --storage "${BM_STORAGE_FILE}"
-
-"${BM_STORAGECTL}" render-patch \
-  --inventory "${BM_INVENTORY_FILE}" \
-  --storage "${BM_STORAGE_FILE}" \
-  --counter "${NEXT_COUNTER}" \
-  > "${BM_PATCH_FILE}"
-```
-
-先 server-side dry-run：
-
-```bash
-kubectl -n "${BM_NS}" \
-  patch machineinventory.elemental.cattle.io "${BM_INVENTORY}" \
-  --type=merge --patch-file="${BM_PATCH_FILE}" \
-  --dry-run=server -o yaml
-```
-
-确认 device ID、`/var/cpaas`、XFS、InitializeIfBlank 和 approval 正确后 apply：
-
-```bash
-kubectl -n "${BM_NS}" \
-  patch machineinventory.elemental.cattle.io "${BM_INVENTORY}" \
-  --type=merge --patch-file="${BM_PATCH_FILE}"
-```
-
-出现 resourceVersion 冲突时，重新 get live Inventory、重新 render patch、重新 dry-run；不要删 resourceVersion。
-
-## 6. 等待三台 Storage Prepare 完成
-
-```bash
-kubectl -n "${BM_NS}" \
-  get machineinventory "${BM_INVENTORY}" -o json \
-  | jq '.status.storage | {
-      phase,appliedSpecHash,pendingSpecHash,
-      lastConsumedInitializationApprovalCounter,
-      conditions,appliedVolumes,operation}'
-```
-
-加入 Pool 前每台都要满足 ACP 4.3.2 对应状态，通常为：
-
-```text
-phase=Prepared
-StoragePrepared=True / AllRequiredVolumesPrepared
-StorageActive=False / Inactive
-operation=null
-```
-
-此时 100G 盘已准备但 `/var/cpaas` 尚未激活；分配给 BaremetalMachine 后才 Activate。
+三台都 `Ready=True`，且已确认从系统盘启动后，才能创建 Pool。不要等待 StoragePrepared。
 
 ## 7. 创建 Control Plane Pool
 
-文件：`manifests/02-workload-control-plane-pool.yaml`。已经填入截图中的三个真实 Inventory：
+文件：`manifests/02-workload-control-plane-pool.yaml`。已经填入三个真实 Inventory：
 
 ```yaml
 inventoryRefs:
@@ -380,7 +324,7 @@ inventoryRefs:
   - name: olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62
 ```
 
-确认三台 StoragePrepared 后执行：
+确认三台 Inventory Ready、ISO 已弹出、并从系统盘启动后执行：
 
 ```bash
 kubectl apply \
@@ -424,20 +368,11 @@ spec:
       cidrBlocks: [100.14.0.0/16]
 ```
 
-三个 CIDR 不得与 Global、物理网络、管理网、存储网或其他 Workload 冲突。
+把 `${GLOBAL_REGISTRY}` 换成第 1.1 节实际输出。三个 CIDR 不得与 Global、物理网络、管理网、存储网或其他 Workload 冲突。
 
 ### 8.3 KCP
 
-编辑 `manifests/06-workload-control-plane.yaml`：
-
-```yaml
-spec:
-  replicas: 3
-  version: v1.34.5-3
-  rolloutStrategy:
-    rollingUpdate:
-      maxSurge: 0
-```
+文件：`manifests/06-workload-control-plane.yaml`。
 
 这是官方 ACP 4.3.2 Bare Metal 全量 `KubeadmControlPlane`。已填入本项目固定值：
 
@@ -502,8 +437,6 @@ kubectl -n cpaas-system \
 - BaremetalCluster Ready/EndpointReady；
 - 三台 Inventory 被分配；
 - reprovision plans Applied；
-- storage 从 Prepared 进入 Active；
-- `/var/cpaas` 在 kubelet 前挂载；
 - KCP replicas=3；
 - kubeconfig Secret 生成；
 - 三台 Master Nodes Ready。
@@ -517,26 +450,16 @@ kubectl -n cpaas-system \
 kubectl --kubeconfig workload-kubeconfig get nodes -o wide
 ```
 
-## 10. 验证 `/var/cpaas`
+## 10. 集群 Ready 后按需挂载数据盘
 
-三台 Master Ready 后，在每台主机验证：
-
-```bash
-findmnt /var/cpaas
-lsblk -f
-mount | grep /var/cpaas
-df -h /var/cpaas
-```
-
-在 Global 验证 Inventory：
+三台 Master Node Ready 后，如果业务需要使用额外磁盘，再登录节点手工挂载。这一步不是创建 Cluster/KCP 的前置条件，也不影响后续 OS 升级。
 
 ```bash
-kubectl -n cpaas-system \
-  get machineinventory "${BM_INVENTORY}" -o json \
-  | jq '.status.storage | {phase,conditions,appliedVolumes,operation}'
+lsblk -o NAME,SIZE,MODEL,SERIAL,WWN,FSTYPE,LABEL,MOUNTPOINTS
+findmnt /
 ```
 
-期待：storage phase `Active`、StorageActive=True，并且 BaremetalMachine storage Ready（实际字段以 ACP 4.3.2 CRD 为准）。
+确认系统盘已经挂着 Elemental 分区。数据盘保持独立，按现场需求挂到业务路径。不要把数据盘重新做成系统盘。
 
 ## 11. 添加 Worker（物理机就绪后）
 
@@ -550,7 +473,7 @@ manifests/10-worker-kubeadm-config-template.yaml
 manifests/11-worker-machine-deployment.yaml
 ```
 
-流程与 Master 一致：SeedImageReady → ISO 启动 → MachineInventory → 可选 Storage Prepare → Worker Pool → Template/ConfigTemplate/MachineDeployment。
+流程与 Master 一致：SeedImageReady → ISO 启动 → 弹出 ISO/改启动项 → 确认已安装 OS → 检查 MachineInventory Ready → Worker Pool → Template/ConfigTemplate/MachineDeployment。数据盘等节点 Ready 后再手工挂载。
 
 Worker 创建前必须替换 Worker Inventory 和 SSH 公钥。
 
@@ -558,14 +481,13 @@ Worker 创建前必须替换 Worker Inventory 和 SSH 公钥。
 
 出现以下任一情况停止，不继续 apply 后续资源：
 
-- `/dev/elemental-install-target` 未明确指向 300G 系统盘；
-- 无法识别三个 100G `systemRole=Data` 的稳定设备 ID；
-- `storagectl` 与 Provider revision 不匹配；
-- storageinitialize 权限不是 `yes`；
+- 主机仍从 SeedImage/ISO 启动，BMC 未弹出虚拟介质；
+- `/` 仍是 Live ISO，或看不到 `COS_STATE` 等已安装系统布局；
+- 任一 MachineInventory 不是 `Ready=True`，或看不到正常磁盘布局；
+- 多盘重装时 `/dev/elemental-install-target` 未明确指向系统盘；
 - server dry-run 失败；
-- 任一 Inventory 未达到 Prepared；
 - Pool available 小于 3；
-- Registry、Image Catalog、LB、CIDR 或 provider-id 未确认；
+- Registry、Image Catalog、LB、CIDR 或 SSH 公钥未确认；
 - 要 apply 的 YAML 中仍存在 `<...>`、`填写实际` 或 `PROVIDER_ID` 占位内容。
 
 ## 13. Apply 前逐机与网络检查清单
@@ -580,7 +502,7 @@ kubectl -n cpaas-system get machineinventories.elemental.cattle.io -o wide
 kubectl -n cpaas-system get machineinventorypool -o wide
 ```
 
-确认：当前是 Global Master 01；Image Catalog 有 `v1.34.5-3`；三台 Master Inventory 名字与 Pool YAML 完全一致；Inventory 未分配且 storage Prepared。
+确认：当前是 Global Master 01；Image Catalog 有 `v1.34.5-3`；三台 Master Inventory 名字与 Pool YAML 完全一致；Inventory Ready、未分配，并且已经从系统盘启动。
 
 检查 YAML 中仍未替换的值：
 
@@ -614,22 +536,20 @@ done
 
 ```bash
 hostname
-readlink -f /dev/elemental-install-target
-lsblk -o NAME,SIZE,MODEL,SERIAL,WWN,FSTYPE,MOUNTPOINTS
-sudo systemctl is-enabled elemental-storage-observer.service
-sudo systemctl is-active elemental-storage-observer.service
+findmnt -n -o SOURCE,FSTYPE,TARGET /
+findmnt /run/initramfs/live || echo NO_LIVE_ISO_ROOT
+lsblk -e7 -o NAME,PATH,TYPE,SIZE,MODEL,SERIAL,WWN,FSTYPE,LABEL,MOUNTPOINTS
 timedatectl
 chronyc tracking
 ```
 
 逐台确认：
 
-- `/dev/elemental-install-target` 最终指向 300G 系统盘；
-- 100G 数据盘不是系统盘，且其真实 WWN/serial 与 Global 中 observedStorage 一致；
-- observer enabled/active；
+- 当前不是 Live ISO，已经从系统盘启动；
+- 能看到 Elemental 系统分区布局；
+- ISO/虚拟光驱已卸载，启动项不是虚拟 CD；
 - 时区一致，三台时间误差不超过 10 秒；
-- 100G 盘确实为空并批准 InitializeIfBlank，或者切换为 Adopt；
-- 没有把任何已有业务数据盘误选为安装盘或初始化盘。
+- 没有把数据盘误当成系统盘。
 
 ### 13.3 [LB 管理端] 执行
 
@@ -658,7 +578,7 @@ kubectl -n cpaas-system get events --sort-by=.lastTimestamp
 kubectl -n cpaas-system get secret olvm-workloadcluster-kubeconfig
 ```
 
-检查三台 Inventory 的 storage/plan：
+检查三台 Inventory 的 Ready/plan：
 
 ```bash
 for inventory in \
@@ -667,8 +587,8 @@ for inventory in \
   olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62
 do
   echo "===== ${inventory} ====="
-  kubectl -n cpaas-system get machineinventory "${inventory}" -o json \
-    | jq '{plan:.status.plan,storage:.status.storage,conditions:.status.conditions}'
+  kubectl -n cpaas-system get machineinventory.elemental.cattle.io "${inventory}" -o json \
+    | jq '{conditions:.status.conditions,plan:.status.plan}'
 done
 ```
 
@@ -676,14 +596,13 @@ done
 
 ```bash
 hostname
-findmnt /var/cpaas
+findmnt -n -o SOURCE,FSTYPE,TARGET /
 lsblk -f
-df -h /var/cpaas
 systemctl is-active kubelet
 systemctl is-active containerd
 ```
 
-三台都必须看到 100G XFS 数据盘挂载到 `/var/cpaas`，kubelet/containerd active。
+三台都必须从系统盘启动，kubelet/containerd active。数据盘不是这一步的成功标准。
 
 ### 13.6 [Global Master 01，使用 Workload kubeconfig] 最终验证
 
