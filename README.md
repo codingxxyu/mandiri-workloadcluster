@@ -30,15 +30,17 @@ olvm-workloadcluster-d6bbbcff-a3c9-4aee-8e2b-e78eca996b12
 olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62
 ```
 
-磁盘规划：
+磁盘规划（研发确认口径）：
 
 ```text
-每台 Master：
-300G → Alauda OS 系统安装盘 + COS_STATE
-100G → XFS 数据盘，挂载 /var/cpaas
+部署阶段只规划系统盘。
+多盘主机用 /dev/elemental-install-target 固定系统盘 WWN。
+额外数据盘不在 MachineInventory.spec.storage 里提前声明。
+集群 Ready 后，再登录节点手工挂载数据盘。
+后续 OS/集群升级不依赖这块数据盘规划。
 ```
 
-> 重要：所有部署操作均按本文逐步手工执行，不依赖任何辅助脚本。现场真实 Registry、SSH 公钥、provider-id 和每台 100G 稳定设备 ID 必须先按本文命令取得，再直接编辑对应 YAML。External LB VIP 已确定为 `10.243.166.12`。未完成第 13 节检查前禁止 apply。
+> 重要：所有部署操作均按本文逐步手工执行，不依赖任何辅助脚本。现场真实 Registry、SSH 公钥和 provider-id 必须先按本文命令取得，再直接编辑对应 YAML。External LB VIP 已确定为 `10.243.166.12`。未完成第 13 节检查前禁止 apply。
 
 ## 1. 执行位置和责任矩阵
 
@@ -437,13 +439,23 @@ spec:
       maxSurge: 0
 ```
 
-必须替换：
+这是官方 ACP 4.3.2 Bare Metal 全量 `KubeadmControlPlane`。已填入本项目固定值：
 
-- `manifests/06-workload-control-plane.yaml` 中的 SSH 公钥替换为 `${SSH_PUBLIC_KEY}` 的实际输出；
-- `provider-id` 替换为 ACP 4.3.2 官方 Bare Metal Kubeadm 示例中的实际支持值；
-- 按 ACP 4.3.2 正式 Kubeadm Provider 示例补齐/核对 `kubeadmConfigSpec`。
+- `version: v1.34.5-3`
+- `dns.imageTag: 1.14.2-v4.3.11`
+- `etcd.local.imageTag: v3.5.28-260625`
+- `machineTemplate.infrastructureRef.name: olvm-workloadcluster-control-plane-machine-template`
 
-不能把这些占位符直接 apply。
+apply 前只替换 SSH 公钥：
+
+```yaml
+sshAuthorizedKeys:
+  - "<ssh-authorized-keys>"
+```
+
+把 Global Master 01 上 `/root/.ssh/*.pub` 的完整一行公钥写进去。官方这份 YAML 使用 `node-labels: kube-ovn/role=master`，不再使用自定义 `provider-id` 占位符。
+
+不能把 `<ssh-authorized-keys>` 直接 apply。
 
 官方“步骤 3：创建控制平面集群资源”对应本项目 4 个文件，必须按下面顺序创建：
 
@@ -540,7 +552,7 @@ manifests/11-worker-machine-deployment.yaml
 
 流程与 Master 一致：SeedImageReady → ISO 启动 → MachineInventory → 可选 Storage Prepare → Worker Pool → Template/ConfigTemplate/MachineDeployment。
 
-Worker 创建前必须替换 Worker Inventory、SSH key 和 provider-id 占位符。
+Worker 创建前必须替换 Worker Inventory 和 SSH 公钥。
 
 ## 12. 停止条件
 

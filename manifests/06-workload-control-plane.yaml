@@ -1,5 +1,6 @@
-# Complete kubeadmConfigSpec must be verified against the ACP 4.3.2 Kubeadm Provider example.
-# Do not leave PROVIDER_ID or public-key placeholders before apply.
+# Official ACP 4.3.2 Bare Metal KubeadmControlPlane.
+# Replace sshAuthorizedKeys with the actual Global Master 01 public key before apply.
+# imageTag values come from the ACP v4.3.2 OS support matrix.
 apiVersion: controlplane.cluster.x-k8s.io/v1beta1
 kind: KubeadmControlPlane
 metadata:
@@ -9,25 +10,161 @@ spec:
   replicas: 3
   version: v1.34.5-3
   rolloutStrategy:
+    type: RollingUpdate
     rollingUpdate:
       maxSurge: 0
-    type: RollingUpdate
-  kubeadmConfigSpec:
-    format: cloud-config
-    users:
-      - name: boot
-        sshAuthorizedKeys:
-          - <deployment-ssh-public-key>
-    initConfiguration:
-      nodeRegistration:
-        kubeletExtraArgs:
-          provider-id: <ACP-4.3.2-provider-supported-value>
-    joinConfiguration:
-      nodeRegistration:
-        kubeletExtraArgs:
-          provider-id: <ACP-4.3.2-provider-supported-value>
   machineTemplate:
+    nodeDrainTimeout: 5m
+    nodeVolumeDetachTimeout: 5m
     infrastructureRef:
       apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
       kind: BaremetalMachineTemplate
       name: olvm-workloadcluster-control-plane-machine-template
+  kubeadmConfigSpec:
+    users:
+      - name: boot
+        sudo: ALL=(ALL) NOPASSWD:ALL
+        shell: /bin/bash
+        sshAuthorizedKeys:
+          - "<ssh-authorized-keys>"
+    files:
+      - path: /etc/kubernetes/admission/psa-config.yaml
+        owner: "root:root"
+        permissions: "0644"
+        content: |
+          apiVersion: apiserver.config.k8s.io/v1
+          kind: AdmissionConfiguration
+          plugins:
+          - name: PodSecurity
+            configuration:
+              apiVersion: pod-security.admission.config.k8s.io/v1
+              kind: PodSecurityConfiguration
+              defaults:
+                enforce: "privileged"
+                enforce-version: "latest"
+                audit: "baseline"
+                audit-version: "latest"
+                warn: "baseline"
+                warn-version: "latest"
+              exemptions:
+                usernames: []
+                runtimeClasses: []
+                namespaces:
+                - kube-system
+                - cpaas-system
+      - path: /etc/kubernetes/patches/kubeletconfiguration0+strategic.json
+        owner: "root:root"
+        permissions: "0644"
+        content: |
+          {
+            "apiVersion": "kubelet.config.k8s.io/v1beta1",
+            "kind": "KubeletConfiguration",
+            "imagePullCredentialsVerificationPolicy": "NeverVerify",
+            "protectKernelDefaults": true,
+            "tlsCertFile": "/etc/kubernetes/pki/kubelet.crt",
+            "tlsPrivateKeyFile": "/etc/kubernetes/pki/kubelet.key",
+            "streamingConnectionIdleTimeout": "5m",
+            "clientCAFile": "/etc/kubernetes/pki/ca.crt"
+          }
+      - path: /etc/kubernetes/audit/policy.yaml
+        owner: "root:root"
+        permissions: "0644"
+        content: |
+          apiVersion: audit.k8s.io/v1
+          kind: Policy
+          omitStages:
+          - "RequestReceived"
+          rules:
+          - level: None
+            users:
+            - system:kube-controller-manager
+            - system:kube-scheduler
+            - system:serviceaccount:kube-system:endpoint-controller
+            verbs: ["get", "update"]
+            namespaces: ["kube-system"]
+            resources:
+            - group: ""
+              resources: ["endpoints"]
+          - level: None
+            nonResourceURLs:
+            - /healthz*
+            - /version
+            - /swagger*
+          - level: None
+            resources:
+            - group: ""
+              resources: ["events"]
+          - level: None
+            verbs: ["get", "list", "watch"]
+          - level: None
+            resources:
+            - group: "coordination.k8s.io"
+              resources: ["leases"]
+          - level: None
+            resources:
+            - group: "authorization.k8s.io"
+              resources: ["subjectaccessreviews", "selfsubjectaccessreviews"]
+            - group: "authentication.k8s.io"
+              resources: ["tokenreviews"]
+          - level: Metadata
+            resources:
+            - group: ""
+              resources: ["secrets", "configmaps"]
+          - level: RequestResponse
+            resources:
+            - group: ""
+            - group: "apps"
+            - group: "rbac.authorization.k8s.io"
+            - group: "storage.k8s.io"
+            - group: "networking.k8s.io"
+          - level: Metadata
+    postKubeadmCommands:
+      - chmod 600 /var/lib/kubelet/config.yaml
+    clusterConfiguration:
+      imageRepository: cloud.alauda.io/alauda
+      dns:
+        imageTag: 1.14.2-v4.3.11
+      etcd:
+        local:
+          imageTag: v3.5.28-260625
+      apiServer:
+        extraArgs:
+          audit-log-format: json
+          audit-log-maxage: "30"
+          audit-log-maxbackup: "10"
+          audit-log-maxsize: "200"
+          profiling: "false"
+          audit-log-mode: batch
+          audit-log-path: /etc/kubernetes/audit/audit.log
+          audit-policy-file: /etc/kubernetes/audit/policy.yaml
+          tls-cipher-suites: "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+          admission-control-config-file: /etc/kubernetes/admission/psa-config.yaml
+          tls-min-version: VersionTLS12
+          kubelet-certificate-authority: /etc/kubernetes/pki/ca.crt
+        extraVolumes:
+        - name: vol-dir-0
+          hostPath: /etc/kubernetes
+          mountPath: /etc/kubernetes
+          pathType: Directory
+      controllerManager:
+        extraArgs:
+          bind-address: "::"
+          profiling: "false"
+          tls-min-version: VersionTLS12
+      scheduler:
+        extraArgs:
+          bind-address: "::"
+          tls-min-version: VersionTLS12
+          profiling: "false"
+    initConfiguration:
+      patches:
+        directory: /etc/kubernetes/patches
+      nodeRegistration:
+        kubeletExtraArgs:
+          node-labels: "kube-ovn/role=master"
+    joinConfiguration:
+      patches:
+        directory: /etc/kubernetes/patches
+      nodeRegistration:
+        kubeletExtraArgs:
+          node-labels: "kube-ovn/role=master"

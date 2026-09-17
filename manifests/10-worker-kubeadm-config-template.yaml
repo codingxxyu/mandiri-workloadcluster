@@ -1,3 +1,5 @@
+# Worker join config aligned with the official ACP 4.3.2 KubeadmControlPlane.
+# Replace sshAuthorizedKeys before apply.
 apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
 kind: KubeadmConfigTemplate
 metadata:
@@ -6,12 +8,30 @@ metadata:
 spec:
   template:
     spec:
-      format: cloud-config
       users:
         - name: boot
+          sudo: ALL=(ALL) NOPASSWD:ALL
+          shell: /bin/bash
           sshAuthorizedKeys:
-            - <deployment-ssh-public-key>
+            - "<ssh-authorized-keys>"
+      files:
+        - path: /etc/kubernetes/patches/kubeletconfiguration0+strategic.json
+          owner: "root:root"
+          permissions: "0644"
+          content: |
+            {
+              "apiVersion": "kubelet.config.k8s.io/v1beta1",
+              "kind": "KubeletConfiguration",
+              "imagePullCredentialsVerificationPolicy": "NeverVerify",
+              "protectKernelDefaults": true,
+              "tlsCertFile": "/etc/kubernetes/pki/kubelet.crt",
+              "tlsPrivateKeyFile": "/etc/kubernetes/pki/kubelet.key",
+              "streamingConnectionIdleTimeout": "5m",
+              "clientCAFile": "/etc/kubernetes/pki/ca.crt"
+            }
       joinConfiguration:
+        patches:
+          directory: /etc/kubernetes/patches
         nodeRegistration:
           kubeletExtraArgs:
-            provider-id: <ACP-4.3.2-provider-supported-value>
+            node-labels: "kube-ovn/role=worker"
