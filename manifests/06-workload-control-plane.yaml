@@ -118,6 +118,8 @@ spec:
             - group: "storage.k8s.io"
             - group: "networking.k8s.io"
           - level: Metadata
+    preKubeadmCommands:
+      - 'grep -q cloud.alauda.io /etc/hosts || echo "127.0.0.1 cloud.alauda.io" >> /etc/hosts'
     postKubeadmCommands:
       - chmod 600 /var/lib/kubelet/config.yaml
     clusterConfiguration:
