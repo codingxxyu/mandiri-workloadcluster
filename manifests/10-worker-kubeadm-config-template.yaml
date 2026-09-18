@@ -1,5 +1,7 @@
-# Worker join config aligned with the official ACP 4.3.2 KubeadmControlPlane.
-# Replace sshAuthorizedKeys before apply.
+# Official ACP 4.3.2 worker KubeadmConfigTemplate, plus the R&D hosts
+# pre-command. Replace sshAuthorizedKeys before apply.
+# Do not pre-fill hostname, provider-id, or criSocket; the provider
+# writes those into the reprovision plan.
 apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
 kind: KubeadmConfigTemplate
 metadata:
@@ -22,8 +24,8 @@ spec:
             {
               "apiVersion": "kubelet.config.k8s.io/v1beta1",
               "kind": "KubeletConfiguration",
-              "imagePullCredentialsVerificationPolicy": "NeverVerify",
               "protectKernelDefaults": true,
+              "staticPodPath": null,
               "tlsCertFile": "/etc/kubernetes/pki/kubelet.crt",
               "tlsPrivateKeyFile": "/etc/kubernetes/pki/kubelet.key",
               "streamingConnectionIdleTimeout": "5m",

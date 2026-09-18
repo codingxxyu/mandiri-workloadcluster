@@ -1,3 +1,6 @@
+# Apply only after Worker machines have left the Live ISO,
+# registered as MachineInventory, and are Ready=True.
+# Replace inventoryRefs with the real Worker inventory names first.
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: MachineInventoryPool
 metadata:

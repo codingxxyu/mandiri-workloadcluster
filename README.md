@@ -132,6 +132,9 @@ printf 'Workload API VIP: 10.243.166.12\n'
 | `manifests/03-workload-baremetal-cluster.yaml` | `spec.controlPlaneLoadBalancer.host` | 已填写 `10.243.166.12` |
 | `manifests/05-workload-cluster.yaml` | `metadata.annotations.cpaas.io/registry-address` | `${GLOBAL_REGISTRY}` 的实际输出 |
 | `manifests/06-workload-control-plane.yaml` | `sshAuthorizedKeys` | `${SSH_PUBLIC_KEY}` 的实际完整输出 |
+| `manifests/07-worker-registration-seedimage.yaml` | `SeedImage.spec.baseImage` | 与 `01` 相同的 ISO 镜像地址 |
+| `manifests/08-worker-pool.yaml` | `spec.inventoryRefs[].name` | Worker 物理机注册后出现的真实 `MachineInventory` 名字 |
+| `manifests/10-worker-kubeadm-config-template.yaml` | `sshAuthorizedKeys` | 与 KCP 相同的 `${SSH_PUBLIC_KEY}` |
 | 多盘主机系统盘 | Live ISO 上的 `/dev/elemental-install-target` | 该主机系统盘的 `/dev/disk/by-id/wwn-*` |
 
 在 Global Master 01 上使用 `vi` 或 `vim` 逐个编辑，例如：
@@ -461,21 +464,265 @@ findmnt /
 
 确认系统盘已经挂着 Elemental 分区。数据盘保持独立，按现场需求挂到业务路径。不要把数据盘重新做成系统盘。
 
-## 11. 添加 Worker（物理机就绪后）
+## 11. 添加 Worker
 
-依次使用：
+按官方文档 [Managing Nodes on Bare Metal → Worker Node Deployment](https://docs.alauda.cn/immutable-infra/1.0/manage-nodes/bare-metal.html#worker-node-deployment)。
 
-```text
-manifests/07-worker-registration-seedimage.yaml
-manifests/08-worker-pool.yaml
-manifests/09-worker-machine-template.yaml
-manifests/10-worker-kubeadm-config-template.yaml
-manifests/11-worker-machine-deployment.yaml
+官方这一节默认 Control Plane 已经起来，并且 Worker Pool 里已经有足够的 `Available` Inventory。本项目 Worker 物理机还没注册，所以先完成注册和 Pool，再走官方 Step 1–4。
+
+不要把 Worker YAML 和 Control Plane YAML 一起 apply。
+
+| 阶段 | 官方步骤 | 本项目文件 | 资源 |
+|---|---|---|---|
+| 注册主机（官方 Create Cluster Step 1，本项目先做） | SeedImage ISO 启动 | `manifests/07-worker-registration-seedimage.yaml` | `MachineRegistration` + `SeedImage` |
+| 写入 Pool（官方 Create Cluster Step 2） | 把真实 Inventory 放进 Worker Pool | `manifests/08-worker-pool.yaml` | `MachineInventoryPool` |
+| 官方 Step 1 | 确认 Worker Pool `status.available ≥ replicas` | 已 apply 的 `08` | `olvm-workloadcluster-worker-pool` |
+| 官方 Step 2 | Worker 基础设施模板 | `manifests/09-worker-machine-template.yaml` | `BaremetalMachineTemplate` |
+| 官方 Step 3 | Worker bootstrap | `manifests/10-worker-kubeadm-config-template.yaml` | `KubeadmConfigTemplate` |
+| 官方 Step 4 | 副本、版本、滚动策略 | `manifests/11-worker-machine-deployment.yaml` | `MachineDeployment` |
+
+当前 `08` 里还是占位名字，`07` 的 Registry 和 `10` 的 SSH 公钥也还没替换。没填完不要 apply。
+
+官方四个 Worker 对象对应本项目名字：
+
+| 官方占位 | 本项目实际名字 |
+|---|---|
+| `<cluster-name>-worker-pool` | `olvm-workloadcluster-worker-pool` |
+| `<cluster-name>-worker-template` | `olvm-workloadcluster-worker-machine-template` |
+| `<cluster-name>-worker-bootstrap` | `olvm-workloadcluster-worker-kubeadm-config` |
+| `<cluster-name>-workers` | `olvm-workloadcluster-worker-deployment` |
+
+### 11.1 前置条件
+
+官方要求：
+
+- Control Plane 已经运行。
+- Worker Pool 的 `Available` Inventory 数量 ≥ `replicas`（本项目 `replicas: 3`）。
+- `Machine.spec.version` 必须是 `elemental-image-catalog` 的 key。本项目用 `v1.34.5-3`。
+- 只有改 `<>` 占位符。hostname、`provider-id`、`criSocket` 不要预填，provider 会在 reprovision plan 里写入。
+
+本方案不在 Inventory 上声明 `spec.storage.volumes[]`，所以不需要等 `StoragePrepared`。
+
+在 **[Global Master 01]** 确认 Control Plane：
+
+```bash
+kubectl --kubeconfig workload-kubeconfig get nodes -o wide
+kubectl -n cpaas-system get kubeadmcontrolplane olvm-workloadcluster-control-plane
+kubectl -n cpaas-system get configmap elemental-image-catalog -o yaml
 ```
 
-流程与 Master 一致：SeedImageReady → ISO 启动 → 弹出 ISO/改启动项 → 确认已安装 OS → 检查 MachineInventory Ready → Worker Pool → Template/ConfigTemplate/MachineDeployment。数据盘等节点 Ready 后再手工挂载。
+要求：三台 Master Node Ready；KCP Ready；catalog 有 `v1.34.5-3`。
 
-Worker 创建前必须替换 Worker Inventory 和 SSH 公钥。
+### 11.2 [Global Master 01] 创建 Worker SeedImage
+
+编辑 `manifests/07-worker-registration-seedimage.yaml`，只改 Registry，不要改 `${System Information/UUID}` 这类 Elemental 表达式：
+
+```yaml
+spec:
+  baseImage: ${GLOBAL_REGISTRY}/tkestack/baremetal-base-image-iso:v4.3.2-1-1.34.5-3
+```
+
+把 `${GLOBAL_REGISTRY}` 换成第 1.1 节实际输出。
+
+```bash
+vi manifests/07-worker-registration-seedimage.yaml
+grep -nE '<[^>]+>|填写实际' manifests/07-worker-registration-seedimage.yaml
+kubectl apply --dry-run=server -f manifests/07-worker-registration-seedimage.yaml
+kubectl apply -f manifests/07-worker-registration-seedimage.yaml
+kubectl -n cpaas-system get machineregistration olvm-workloadcluster-worker-registration
+kubectl -n cpaas-system describe seedimage olvm-workloadcluster-worker-registration-iso
+```
+
+等到 `SeedImageReady=True` 后再下载 ISO。不要用 Control Plane 那张 ISO 去装 Worker。
+
+```bash
+kubectl -n cpaas-system get seedimage olvm-workloadcluster-worker-registration-iso -o yaml
+```
+
+把生成的 Worker ISO 挂到三台 Worker 物理机的虚拟光驱。`install.device` 已经是 `/dev/elemental-install-target`。多盘主机按第 4 节在 Live ISO 上把该路径链到系统盘 WWN。
+
+### 11.3 [BMC + 三台 Worker] 从 Worker ISO 安装
+
+每台 Worker 物理机：
+
+1. BMC 挂上 Worker SeedImage ISO。
+2. 本次启动从虚拟光驱进入 Live ISO。
+3. 多盘主机按第 4.1 节创建 `/dev/elemental-install-target`，确认指向系统盘。
+4. 等 Elemental 安装并自动重启。
+5. 安装触发重启后，立即弹出/卸载 ISO。
+6. 把启动顺序改回 disk-first。
+7. 确认下一次启动进入已安装 OS，不是再次进入 Live ISO。
+
+登录已安装系统检查：
+
+```bash
+hostname
+findmnt -n -o SOURCE,FSTYPE,TARGET /
+findmnt /run/initramfs/live || echo NO_LIVE_ISO_ROOT
+lsblk -e7 -o NAME,PATH,TYPE,SIZE,MODEL,SERIAL,WWN,FSTYPE,LABEL,MOUNTPOINTS
+timedatectl
+chronyc tracking
+```
+
+必须同时满足：
+
+- `/` 不是 `LiveOS_rootfs`
+- 没有 `/run/initramfs/live`
+- 能看到 `COS_STATE` / `COS_OEM` / `COS_RECOVERY` / `COS_PERSISTENT`
+- 时区和 Master 一致，时间误差不超过 10 秒
+- 额外数据盘这一步不要格式化、不要挂业务路径
+
+如果还在 Live ISO，停止。回到 BMC 弹出 ISO，改启动项，再重启。
+
+### 11.4 [Global Master 01] 检查 Worker Inventory 并写入 Pool
+
+```bash
+kubectl -n cpaas-system get machineinventories.elemental.cattle.io -o wide
+kubectl -n cpaas-system get machineinventories.elemental.cattle.io \
+  -l cpaas.io/node-role=worker -o wide
+```
+
+Worker Inventory 名字由 Elemental 按 `olvm-workloadcluster-worker-${UUID}` 生成，现场才会出现。把三台真实名字记下来。
+
+每台都要满足：`Ready=True`；报告了预期网络/IP；只有一套当前 Elemental 磁盘布局；allocation 为空或 `Available`；owner 字段为空。
+
+```bash
+for inventory in \
+  <actual-worker-inventory-1> \
+  <actual-worker-inventory-2> \
+  <actual-worker-inventory-3>
+do
+  echo "===== ${inventory} ====="
+  kubectl -n cpaas-system describe machineinventory.elemental.cattle.io "${inventory}"
+  kubectl -n cpaas-system \
+    get machineinventory.elemental.cattle.io "${inventory}" \
+    -o jsonpath='name={.metadata.name}{"\n"}uid={.metadata.uid}{"\n"}allocation={.metadata.annotations.baremetal\.alauda\.io/allocation-state}{"\n"}baremetalMachine={.metadata.annotations.baremetal\.alauda\.io/owner-baremetalmachine}{"\n"}machine={.metadata.annotations.baremetal\.alauda\.io/owner-machine}{"\n"}cluster={.metadata.annotations.baremetal\.alauda\.io/owner-cluster}{"\n"}plan={.status.plan.secretRef.name}{"\n\n"}'
+done
+```
+
+把三个 `<actual-worker-inventory-*>` 换成刚查到的真实名字。任一不是 `Ready=True`，或仍像 Live ISO 磁盘布局，不要加入 Worker Pool。
+
+编辑 `manifests/08-worker-pool.yaml`：
+
+```yaml
+spec:
+  clusterName: olvm-workloadcluster
+  inventoryRefs:
+    - name: <actual-worker-inventory-1>
+    - name: <actual-worker-inventory-2>
+    - name: <actual-worker-inventory-3>
+```
+
+```bash
+vi manifests/08-worker-pool.yaml
+grep -nE '<[^>]+>|填写实际' manifests/08-worker-pool.yaml
+kubectl apply --dry-run=server -f manifests/08-worker-pool.yaml
+kubectl apply -f manifests/08-worker-pool.yaml
+```
+
+### 11.5 官方 Step 1：确认 Worker Pool 容量
+
+```bash
+kubectl -n cpaas-system get machineinventorypools.infrastructure.cluster.x-k8s.io \
+  olvm-workloadcluster-worker-pool
+kubectl -n cpaas-system get machineinventorypool olvm-workloadcluster-worker-pool -o yaml
+```
+
+成功标准：`status.available ≥ 3`，并且 Pool Ready/MembersValid。
+
+容量不够时，不要继续 Step 2。回去再注册主机、弹出 ISO、确认 Inventory Ready，再把名字追加进 `08`。
+
+### 11.6 官方 Step 2：Worker BaremetalMachineTemplate
+
+文件：`manifests/09-worker-machine-template.yaml`。已经指向 `olvm-workloadcluster-worker-pool`，一般不用改。
+
+官方这份 YAML 只要求 `machineInventoryPoolRef.name`。`allocationPolicy` 是预留字段，provider 当前把每个 Pool 都当成 `Ordered`：按声明顺序取第一台 `Available` Inventory。
+
+```bash
+kubectl apply --dry-run=server -f manifests/09-worker-machine-template.yaml
+kubectl apply -f manifests/09-worker-machine-template.yaml
+kubectl -n cpaas-system get baremetalmachinetemplate \
+  olvm-workloadcluster-worker-machine-template
+```
+
+这个模板创建后，pool 引用视为不可变。以后要换 Pool，必须新建一个模板名字，再改 MachineDeployment 的 `infrastructureRef.name`。原地改现有模板不会滚动节点。
+
+### 11.7 官方 Step 3：Worker Bootstrap
+
+文件：`manifests/10-worker-kubeadm-config-template.yaml`。
+
+apply 前只替换 SSH 公钥，写成和第 1.3 节、KCP 相同的那一行：
+
+```yaml
+sshAuthorizedKeys:
+  - "<ssh-authorized-keys>"
+```
+
+本项目 Kubernetes 是 `v1.34.5-3`，官方要求 1.34 及更早不要写 `imagePullCredentialsVerificationPolicy: NeverVerify`。当前 YAML 已按这个口径去掉该字段。研发给的 `preKubeadmCommands` 已保留。`node-labels: kube-ovn/role=worker` 也保留。
+
+不要在这份模板里预填：
+
+- hostname / FQDN：provider 从 Pool 的 hostname 或 Inventory 名字写入
+- `kubeletExtraArgs.provider-id`：provider 写成 `baremetal:///<inventory-name>`
+- `nodeRegistration.criSocket`：未设置时 provider 写成 `unix:///var/run/containerd/containerd.sock`
+
+```bash
+vi manifests/10-worker-kubeadm-config-template.yaml
+grep -nE '<[^>]+>|填写实际|provider-id' manifests/10-worker-kubeadm-config-template.yaml
+kubectl apply --dry-run=server -f manifests/10-worker-kubeadm-config-template.yaml
+kubectl apply -f manifests/10-worker-kubeadm-config-template.yaml
+kubectl -n cpaas-system get kubeadmconfigtemplate \
+  olvm-workloadcluster-worker-kubeadm-config
+```
+
+还有 `<ssh-authorized-keys>` 就停止。
+
+### 11.8 官方 Step 4：MachineDeployment
+
+文件：`manifests/11-worker-machine-deployment.yaml`。已按官方字段填好：
+
+- `replicas: 3`
+- `version: v1.34.5-3`
+- `strategy.rollingUpdate.maxSurge: 0`
+- `strategy.rollingUpdate.maxUnavailable: 1`
+- `nodeDrainTimeout: 5m`
+- `nodeVolumeDetachTimeout: 5m`
+
+裸金属不能超配。`maxSurge` 必须保持 `0`；`maxSurge=0` 时 `maxUnavailable` 必须 `> 0`。`replicas` 必须满足：
+
+```text
+replicas ≤ MachineInventoryPool.status.available + status.allocated
+```
+
+```bash
+grep -nE '<[^>]+>|填写实际' manifests/11-worker-machine-deployment.yaml
+kubectl apply --dry-run=server -f manifests/11-worker-machine-deployment.yaml
+kubectl apply -f manifests/11-worker-machine-deployment.yaml
+kubectl -n cpaas-system get machinedeployments.cluster.x-k8s.io
+kubectl -n cpaas-system get baremetalmachines.infrastructure.cluster.x-k8s.io -w
+kubectl --kubeconfig workload-kubeconfig get nodes -o wide
+```
+
+成功标准：
+
+- `MachineDeployment` `olvm-workloadcluster-worker-deployment` 存在，replicas=3
+- `BaremetalMachine` 按 `Pending → Allocated → Reprovisioning → Running` 前进
+- Workload 集群出现 3 台 Worker Node，并且 Ready
+- 节点带 `kube-ovn/role=worker`
+- Worker Pool 的 `available` 随绑定下降
+
+### 11.9 Worker Ready 后按需挂数据盘
+
+和 Master 一样，数据盘不是加入 Pool、也不是官方 Step 1–4 的前置条件。Worker Node Ready 后，再登录节点按现场需求挂载：
+
+```bash
+lsblk -o NAME,SIZE,MODEL,SERIAL,WWN,FSTYPE,LABEL,MOUNTPOINTS
+findmnt /
+systemctl is-active kubelet
+systemctl is-active containerd
+```
+
+不要把数据盘重新做成系统盘。后续 OS/集群升级不依赖这块后挂的数据盘。
 
 ## 12. 停止条件
 
@@ -488,7 +735,9 @@ Worker 创建前必须替换 Worker Inventory 和 SSH 公钥。
 - server dry-run 失败；
 - Pool available 小于 3；
 - Registry、Image Catalog、LB、CIDR 或 SSH 公钥未确认；
-- 要 apply 的 YAML 中仍存在 `<...>`、`填写实际` 或 `PROVIDER_ID` 占位内容。
+- 要 apply 的 YAML 中仍存在 `<...>`、`填写实际` 或 `PROVIDER_ID` 占位内容；
+- Worker 物理机尚未注册出真实 Inventory，就去 apply `08`；
+- Worker SeedImage 还不是 `SeedImageReady=True`，就去给 Worker 挂 ISO。
 
 ## 13. Apply 前逐机与网络检查清单
 
@@ -611,4 +860,34 @@ kubectl -n cpaas-system get secret olvm-workloadcluster-kubeconfig \
   -o jsonpath='{.data.value}' | base64 -d > workload-kubeconfig
 kubectl --kubeconfig workload-kubeconfig get nodes -o wide
 kubectl --kubeconfig workload-kubeconfig get pods -A
+```
+
+这一步先确认三台 Master Ready。Worker 还没加进来时，Node 列表只有 Control Plane 是正常的。
+
+### 13.7 [Global Master 01] 添加 Worker 前执行
+
+```bash
+kubectl --kubeconfig workload-kubeconfig get nodes -o wide
+kubectl -n cpaas-system get configmap elemental-image-catalog -o yaml
+grep -nE '<[^>]+>|填写实际|provider-id' \
+  manifests/07-worker-registration-seedimage.yaml \
+  manifests/08-worker-pool.yaml \
+  manifests/10-worker-kubeadm-config-template.yaml
+```
+
+`07` 的 Registry 必须已经替换。`08` 必须等 Worker Inventory 真实出现后再替换，不要提前 apply。`10` 的 SSH 公钥必须和第 1.3 节一致，且不要预填 `provider-id`。
+
+Worker Inventory Ready 并写入 Pool 后，先确认官方 Step 1 的容量，再 dry-run Step 2–4：
+
+```bash
+kubectl -n cpaas-system get machineinventorypools.infrastructure.cluster.x-k8s.io \
+  olvm-workloadcluster-worker-pool
+for file in \
+  manifests/09-worker-machine-template.yaml \
+  manifests/10-worker-kubeadm-config-template.yaml \
+  manifests/11-worker-machine-deployment.yaml
+do
+  echo "===== ${file} ====="
+  kubectl apply --dry-run=server -f "${file}"
+done
 ```

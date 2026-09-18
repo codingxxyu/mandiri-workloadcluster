@@ -1,5 +1,5 @@
 # Apply only after the three physical masters have booted the SeedImage,
-# registered as MachineInventory, and passed Ready/observedStorage checks.
+# left the Live ISO, registered as MachineInventory, and are Ready=True.
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: MachineInventoryPool
 metadata:

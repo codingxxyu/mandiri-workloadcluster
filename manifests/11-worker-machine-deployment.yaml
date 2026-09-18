@@ -1,3 +1,5 @@
+# Official ACP 4.3.2 worker MachineDeployment.
+# Bare-metal cannot over-provision: keep maxSurge 0 and maxUnavailable 1.
 apiVersion: cluster.x-k8s.io/v1beta1
 kind: MachineDeployment
 metadata:
@@ -6,6 +8,11 @@ metadata:
 spec:
   clusterName: olvm-workloadcluster
   replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       cluster.x-k8s.io/deployment-name: olvm-workloadcluster-worker-deployment
@@ -13,14 +20,21 @@ spec:
     metadata:
       labels:
         cluster.x-k8s.io/deployment-name: olvm-workloadcluster-worker-deployment
+        cluster.x-k8s.io/cluster-name: olvm-workloadcluster
+        pool.name: olvm-workloadcluster-workers
     spec:
+      clusterName: olvm-workloadcluster
       version: v1.34.5-3
+      nodeDrainTimeout: 5m
+      nodeVolumeDetachTimeout: 5m
       bootstrap:
         configRef:
           apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
           kind: KubeadmConfigTemplate
           name: olvm-workloadcluster-worker-kubeadm-config
+          namespace: cpaas-system
       infrastructureRef:
         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
         kind: BaremetalMachineTemplate
         name: olvm-workloadcluster-worker-machine-template
+        namespace: cpaas-system
