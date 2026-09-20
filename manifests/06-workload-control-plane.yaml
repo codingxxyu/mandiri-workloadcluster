@@ -59,8 +59,8 @@ spec:
           {
             "apiVersion": "kubelet.config.k8s.io/v1beta1",
             "kind": "KubeletConfiguration",
-            "imagePullCredentialsVerificationPolicy": "NeverVerify",
             "protectKernelDefaults": true,
+            "staticPodPath": null,
             "tlsCertFile": "/etc/kubernetes/pki/kubelet.crt",
             "tlsPrivateKeyFile": "/etc/kubernetes/pki/kubelet.key",
             "streamingConnectionIdleTimeout": "5m",

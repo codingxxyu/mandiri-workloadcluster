@@ -1,10 +1,15 @@
-# Verify External/Internal LB schema against ACP 4.3.2 CRD before apply.
+# External LB VIP is already forwarding TCP 6443 to the three masters.
+# networkDevice is optional and defaults to eth0. Keep it in the YAML so
+# the CNI NIC is explicit. Override a single host on the pool instead of
+# changing this field when only one machine uses a different name.
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: BaremetalCluster
 metadata:
   name: olvm-workloadcluster
   namespace: cpaas-system
 spec:
+  networkType: kube-ovn
+  networkDevice: eth0
   controlPlaneLoadBalancer:
     type: External
     host: 10.243.166.12

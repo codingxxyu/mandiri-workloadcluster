@@ -129,11 +129,14 @@ printf 'Workload API VIP: 10.243.166.12\n'
 | 文件 | 要修改或确认的字段 | 值的来源 |
 |---|---|---|
 | `manifests/01-workload-registration-seedimage.yaml` | `SeedImage.spec.baseImage` | `${GLOBAL_REGISTRY}/tkestack/baremetal-base-image-iso:v4.3.2-1-1.34.5-3` |
+| `manifests/02-workload-control-plane-pool.yaml` | `spec.machineInventories[].networkDevice` | 该 Master 的 Kube-OVN 网卡名；默认 `eth0`，bond 或非 `eth0` 时改这一台 |
 | `manifests/03-workload-baremetal-cluster.yaml` | `spec.controlPlaneLoadBalancer.host` | 已填写 `10.243.166.12` |
+| `manifests/03-workload-baremetal-cluster.yaml` | `spec.networkType` / `spec.networkDevice` | 已填写 `kube-ovn` / `eth0`。集群默认 CNI 网卡；只在全员都换网卡时改这里 |
 | `manifests/05-workload-cluster.yaml` | `metadata.annotations.cpaas.io/registry-address` | `${GLOBAL_REGISTRY}` 的实际输出 |
 | `manifests/06-workload-control-plane.yaml` | `sshAuthorizedKeys` | `${SSH_PUBLIC_KEY}` 的实际完整输出 |
 | `manifests/07-worker-registration-seedimage.yaml` | `SeedImage.spec.baseImage` | 与 `01` 相同的 ISO 镜像地址 |
-| `manifests/08-worker-pool.yaml` | `spec.inventoryRefs[].name` | Worker 物理机注册后出现的真实 `MachineInventory` 名字 |
+| `manifests/08-worker-pool.yaml` | `spec.machineInventories[].name` | Worker 物理机注册后出现的真实 `MachineInventory` 名字 |
+| `manifests/08-worker-pool.yaml` | `spec.machineInventories[].networkDevice` | 该 Worker 的 Kube-OVN 网卡名；默认 `eth0`，bond 或非 `eth0` 时改这一台 |
 | `manifests/10-worker-kubeadm-config-template.yaml` | `sshAuthorizedKeys` | 与 KCP 相同的 `${SSH_PUBLIC_KEY}` |
 | 多盘主机系统盘 | Live ISO 上的 `/dev/elemental-install-target` | 该主机系统盘的 `/dev/disk/by-id/wwn-*` |
 
@@ -318,13 +321,18 @@ lsblk -d -o NAME,PATH,SIZE,MODEL,SERIAL,WWN,HCTL \
 
 ## 7. 创建 Control Plane Pool
 
-文件：`manifests/02-workload-control-plane-pool.yaml`。已经填入三个真实 Inventory：
+文件：`manifests/02-workload-control-plane-pool.yaml`。已经填入三个真实 Inventory。官方字段是 `machineInventories`，不是 `inventoryRefs`。`networkDevice` 可选，用来覆盖集群默认 CNI 网卡；当前三台都按 `eth0` 写明。某台实际是 bond 或别的网卡名时，只改那一台：
 
 ```yaml
-inventoryRefs:
-  - name: olvm-workloadcluster-2859b4f7-a97f-4f3b-a5c3-aad410030137
-  - name: olvm-workloadcluster-d6bbbcff-a3c9-4aee-8e2b-e78eca996b12
-  - name: olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62
+spec:
+  clusterName: olvm-workloadcluster
+  machineInventories:
+    - name: olvm-workloadcluster-2859b4f7-a97f-4f3b-a5c3-aad410030137
+      networkDevice: eth0
+    - name: olvm-workloadcluster-d6bbbcff-a3c9-4aee-8e2b-e78eca996b12
+      networkDevice: eth0
+    - name: olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62
+      networkDevice: eth0
 ```
 
 确认三台 Inventory Ready、ISO 已弹出、并从系统盘启动后执行：
@@ -340,12 +348,14 @@ kubectl -n cpaas-system \
 
 ## 8. 修改集群参数
 
-### 8.1 API Endpoint
+### 8.1 API Endpoint 和 CNI 网卡
 
 编辑 `manifests/03-workload-baremetal-cluster.yaml`：
 
 ```yaml
 spec:
+  networkType: kube-ovn
+  networkDevice: eth0
   controlPlaneLoadBalancer:
     type: External
     host: 10.243.166.12
@@ -354,15 +364,41 @@ spec:
 
 External LB 必须已创建 TCP 6443 listener，后端会是三台 Master。若使用 Internal VIP，必须按照 ACP 4.3.2 CRD 修改字段并确认 L2、VRID、VRRP、IPVS；不要直接 apply External 示例。
 
+`networkType: kube-ovn` 打开 provider 托管的 Kube-OVN。`networkDevice` 是集群默认的 CNI 网卡，**可选**，API 默认 `eth0`。本项目仍把它写进 YAML，避免现场默认成未声明的网卡。
+
+覆盖规则：
+
+- 全部节点都用同一块网卡：只改 `BaremetalCluster.spec.networkDevice`，例如改成 `eth1` 或 `bond1`。
+- 只有某台名字不同（bond、或不是集群默认那块）：改对应 Pool 条目的 `machineInventories[].networkDevice`，不要改集群默认。
+- Overlay 时这块网卡必须有 IPv4（Geneve 源地址）。Underlay 时可以没有地址，但不能是带节点地址和默认路由的那块网卡。
+- 地址由主机自己的 NetworkManager 提供，provider 不配 IP。
+- 写成 bond 的 slave 名会报 `NetworkDeviceIsSlave`，要写聚合口。
+- 现场网卡名以 `MachineInventory.spec.observedNetwork.interfaces` 为准，不要猜。
+
+```bash
+kubectl -n cpaas-system get machineinventory.elemental.cattle.io \
+  olvm-workloadcluster-2859b4f7-a97f-4f3b-a5c3-aad410030137 \
+  -o jsonpath='{range .spec.observedNetwork.interfaces[*]}{.name} kind={.kind} master={.master} {.addresses}{"\n"}{end}'
+```
+
+某台不是 `eth0` 时，在 `02` 里只改那一台的 `networkDevice`。Worker 同样改 `08`。
+
 ### 8.2 Registry 和 CIDR
 
 编辑 `manifests/05-workload-cluster.yaml`：
 
 ```yaml
 metadata:
+  labels:
+    cluster-type: ProviderBaremetal
   annotations:
-    cpaas.io/registry-address: ${GLOBAL_REGISTRY}
+    capi.cpaas.io/resource-group-version: infrastructure.cluster.x-k8s.io/v1beta1
+    capi.cpaas.io/resource-kind: BaremetalCluster
+    cpaas.io/sentry-deploy-type: Baremetal
+    cpaas.io/alb-address-type: ClusterAddress
     cpaas.io/kube-ovn-join-cidr: 100.15.0.0/16
+    cpaas.io/kube-ovn-version: v4.3.11
+    cpaas.io/registry-address: ${GLOBAL_REGISTRY}
 spec:
   clusterNetwork:
     pods:
@@ -371,7 +407,7 @@ spec:
       cidrBlocks: [100.14.0.0/16]
 ```
 
-把 `${GLOBAL_REGISTRY}` 换成第 1.1 节实际输出。三个 CIDR 不得与 Global、物理网络、管理网、存储网或其他 Workload 冲突。
+把 `${GLOBAL_REGISTRY}` 换成第 1.1 节实际输出。三个 CIDR 不得与 Global、物理网络、管理网、存储网或其他 Workload 冲突。前四个 annotation 和 `cluster-type` 是官方必填，不要删。本次是 overlay，不要加 `kube-ovn.cpaas.io/transmit-type: underlay`。
 
 ### 8.3 KCP
 
@@ -399,7 +435,7 @@ sshAuthorizedKeys:
 
 | 官方资源 | 本项目文件 | 作用 |
 |---|---|---|
-| `BaremetalCluster` | `manifests/03-workload-baremetal-cluster.yaml` | 声明 Workload API 入口。本方案用 `External`，VIP 为 `10.243.166.12:6443` |
+| `BaremetalCluster` | `manifests/03-workload-baremetal-cluster.yaml` | 声明 Workload API 入口和 CNI 网卡。本方案用 `External` VIP `10.243.166.12:6443`，`networkType: kube-ovn`，`networkDevice: eth0` |
 | `BaremetalMachineTemplate` | `manifests/04-workload-control-plane-machine-template.yaml` | 指向控制平面 Pool，决定从哪 3 台已注册 Inventory 分配 Master |
 | `Cluster` | `manifests/05-workload-cluster.yaml` | CAPI 总对象，把 BaremetalCluster 和 KubeadmControlPlane 绑在一起 |
 | `KubeadmControlPlane` | `manifests/06-workload-control-plane.yaml` | 声明 3 个 Master 副本、Kubernetes 版本和 kubeadm 配置 |
@@ -433,11 +469,17 @@ kubectl -n cpaas-system get \
   baremetalcluster,cluster,kubeadmcontrolplane,machine,baremetalmachine
 kubectl -n cpaas-system \
   get events --sort-by=.lastTimestamp
+kubectl -n cpaas-system get baremetalcluster olvm-workloadcluster \
+  -o jsonpath='{.spec.networkType}{" "}{.spec.networkDevice}{"\n"}'
+kubectl -n cpaas-system get baremetalmachines.infrastructure.cluster.x-k8s.io \
+  -o jsonpath='{range .items[*]}{.metadata.name}{" "}{range .status.conditions[?(@.type=="NetworkDeviceReady")]}{.status} {.reason}: {.message}{"\n"}{end}{end}'
 ```
 
 期待：
 
 - BaremetalCluster Ready/EndpointReady；
+- `NetworkConfigValid` 为 True；
+- 每台 `BaremetalMachine` 的 `NetworkDeviceReady` 为 True；
 - 三台 Inventory 被分配；
 - reprovision plans Applied；
 - KCP replicas=3；
@@ -602,15 +644,18 @@ done
 
 把三个 `<actual-worker-inventory-*>` 换成刚查到的真实名字。任一不是 `Ready=True`，或仍像 Live ISO 磁盘布局，不要加入 Worker Pool。
 
-编辑 `manifests/08-worker-pool.yaml`：
+编辑 `manifests/08-worker-pool.yaml`。官方字段是 `machineInventories`。`networkDevice` 可选，覆盖 `BaremetalCluster.spec.networkDevice`。默认写成 `eth0`；某台是 bond 或别的网卡名时只改那一台：
 
 ```yaml
 spec:
   clusterName: olvm-workloadcluster
-  inventoryRefs:
+  machineInventories:
     - name: <actual-worker-inventory-1>
+      networkDevice: eth0
     - name: <actual-worker-inventory-2>
+      networkDevice: eth0
     - name: <actual-worker-inventory-3>
+      networkDevice: eth0
 ```
 
 ```bash
@@ -628,7 +673,7 @@ kubectl -n cpaas-system get machineinventorypools.infrastructure.cluster.x-k8s.i
 kubectl -n cpaas-system get machineinventorypool olvm-workloadcluster-worker-pool -o yaml
 ```
 
-成功标准：`status.available ≥ 3`，并且 Pool Ready/MembersValid。
+成功标准：`status.available ≥ 3`，并且 Pool Ready/MembersValid。某台 Worker 的 CNI 网卡不是 `eth0` 时，先看该 Inventory 的 `observedNetwork`，再改 `08` 里这一台的 `networkDevice`。
 
 容量不够时，不要继续 Step 2。回去再注册主机、弹出 ISO、确认 Inventory Ready，再把名字追加进 `08`。
 
@@ -737,7 +782,8 @@ systemctl is-active containerd
 - Registry、Image Catalog、LB、CIDR 或 SSH 公钥未确认；
 - 要 apply 的 YAML 中仍存在 `<...>`、`填写实际` 或 `PROVIDER_ID` 占位内容；
 - Worker 物理机尚未注册出真实 Inventory，就去 apply `08`；
-- Worker SeedImage 还不是 `SeedImageReady=True`，就去给 Worker 挂 ISO。
+- Worker SeedImage 还不是 `SeedImageReady=True`，就去给 Worker 挂 ISO；
+- `networkDevice` 写成了 bond slave，或 Inventory `observedNetwork` 里没有这块网卡。
 
 ## 13. Apply 前逐机与网络检查清单
 

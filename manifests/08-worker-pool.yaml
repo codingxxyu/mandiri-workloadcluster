@@ -1,6 +1,8 @@
 # Apply only after Worker machines have left the Live ISO,
 # registered as MachineInventory, and are Ready=True.
-# Replace inventoryRefs with the real Worker inventory names first.
+# Replace machineInventories[].name with the real Worker inventory
+# names first. networkDevice is optional and overrides the cluster
+# default for that host only (bond, or a NIC that is not eth0).
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: MachineInventoryPool
 metadata:
@@ -8,7 +10,10 @@ metadata:
   namespace: cpaas-system
 spec:
   clusterName: olvm-workloadcluster
-  inventoryRefs:
+  machineInventories:
     - name: <actual-worker-inventory-1>
+      networkDevice: eth0
     - name: <actual-worker-inventory-2>
+      networkDevice: eth0
     - name: <actual-worker-inventory-3>
+      networkDevice: eth0

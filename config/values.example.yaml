@@ -18,12 +18,21 @@ network:
   pods_cidr: 100.13.0.0/16
   services_cidr: 100.14.0.0/16
   kube_ovn_join_cidr: 100.15.0.0/16
+  kube_ovn_version: v4.3.11
+  # Cluster-wide CNI NIC. Optional in the API (default eth0). Keep it
+  # explicit in BaremetalCluster.spec.networkDevice.
+  network_device: eth0
+  # Per-host override lives on MachineInventoryPool.spec.machineInventories[].networkDevice.
+  # Change only that host when it uses a bond or a NIC that is not eth0.
 control_plane:
   replicas: 3
   inventories:
-    - olvm-workloadcluster-2859b4f7-a97f-4f3b-a5c3-aad410030137
-    - olvm-workloadcluster-d6bbbcff-a3c9-4aee-8e2b-e78eca996b12
-    - olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62
+    - name: olvm-workloadcluster-2859b4f7-a97f-4f3b-a5c3-aad410030137
+      network_device: eth0
+    - name: olvm-workloadcluster-d6bbbcff-a3c9-4aee-8e2b-e78eca996b12
+      network_device: eth0
+    - name: olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62
+      network_device: eth0
   install_device: /dev/elemental-install-target
   cos_state_size_mib: 20480
   # Extra disks are mounted on the node after the cluster is Ready.
@@ -31,6 +40,9 @@ control_plane:
 workers:
   replicas: 3
   inventories:
-    - <actual-worker-inventory-1>
-    - <actual-worker-inventory-2>
-    - <actual-worker-inventory-3>
+    - name: <actual-worker-inventory-1>
+      network_device: eth0
+    - name: <actual-worker-inventory-2>
+      network_device: eth0
+    - name: <actual-worker-inventory-3>
+      network_device: eth0

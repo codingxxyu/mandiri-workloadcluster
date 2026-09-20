@@ -46,7 +46,8 @@ spec:
   cloud-config:
     stages:
       boot:
-        - files:
+        - name: "Size COS_STATE for reprovisioning"
+          files:
             - path: /etc/elemental/config.d/partitions.yaml
               permissions: 0644
               content: |

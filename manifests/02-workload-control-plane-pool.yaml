@@ -1,5 +1,8 @@
 # Apply only after the three physical masters have booted the SeedImage,
 # left the Live ISO, registered as MachineInventory, and are Ready=True.
+# machineInventories[].networkDevice is optional. It overrides
+# BaremetalCluster.spec.networkDevice for that host only. Leave it as
+# eth0 when the CNI NIC matches the cluster default.
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: MachineInventoryPool
 metadata:
@@ -7,7 +10,10 @@ metadata:
   namespace: cpaas-system
 spec:
   clusterName: olvm-workloadcluster
-  inventoryRefs:
+  machineInventories:
     - name: olvm-workloadcluster-2859b4f7-a97f-4f3b-a5c3-aad410030137
+      networkDevice: eth0
     - name: olvm-workloadcluster-d6bbbcff-a3c9-4aee-8e2b-e78eca996b12
+      networkDevice: eth0
     - name: olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62
+      networkDevice: eth0
