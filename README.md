@@ -50,7 +50,7 @@ olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62
 |---|---|---|
 | **[Global Master 01]** | `global-master01`，当前 `kubectl` 已连接 Global | 查询/修改 Kubernetes 资源、检查 MachineInventory、apply 集群 YAML |
 | **[三台 Master 都执行]** | 三台已注册的裸金属 Master 本机/BMC Console | 核对 ISO 已弹出、从系统盘启动、系统盘挂载正常；集群 Ready 后再手工挂数据盘 |
-| **[三台 Worker BMC Console]** | 三台 Worker 物理机 IPMI/串口，Live ISO 控制台 | 安装前在 eth0 上建 VLAN 329、配静态地址、确认能 ping 网关 |
+| **[Worker BMC Console]** | 本集群默认 1 台 Worker 的 IPMI/串口，Live ISO 控制台 | 安装前在 eth0 上建 VLAN 329、配静态地址（参考 `10.243.166.6/26`，占用则换空闲地址）、DNS `10.243.132.38`、确认能 ping 网关 |
 | **[LB 管理端]** | 客户负载均衡器管理界面 | 核对 External LB VIP `10.243.166.12`、TCP 6443 listener 和三台 Master 后端 |
 | **[Workload kubeconfig]** | Global Master 01，但显式使用生成的 `workload-kubeconfig` | 检查业务集群 Node/Pod |
 
@@ -540,7 +540,7 @@ findmnt /
 官方要求：
 
 - Control Plane 已经运行。
-- Worker Pool 的 `Available` Inventory 数量 ≥ `replicas`（本项目 `replicas: 3`）。
+- Worker Pool 的 `Available` Inventory 数量 ≥ `replicas`（本项目每个集群默认 1 台 Worker，`replicas: 1`）。
 - `Machine.spec.version` 必须是 `elemental-image-catalog` 的 key。本项目用 `v1.34.5-3`。
 - 只有改 `<>` 占位符。hostname、`provider-id`、`criSocket` 不要预填，provider 会在 reprovision plan 里写入。
 
@@ -582,11 +582,11 @@ kubectl -n cpaas-system describe seedimage olvm-workloadcluster-worker-registrat
 kubectl -n cpaas-system get seedimage olvm-workloadcluster-worker-registration-iso -o yaml
 ```
 
-把生成的 Worker ISO 挂到三台 Worker 物理机的虚拟光驱。`install.device` 已经是 `/dev/elemental-install-target`。多盘主机按第 4 节在 Live ISO 上把该路径链到系统盘 WWN。
+把生成的 Worker ISO 挂到这台 Worker 物理机的虚拟光驱。`install.device` 已经是 `/dev/elemental-install-target`。多盘主机按第 4 节在 Live ISO 上把该路径链到系统盘 WWN。本项目每个集群默认 1 台 Worker；要加第二台时再重复本节并提高 `11` 的 `replicas`。
 
-### 11.3 [BMC + 三台 Worker] 从 Worker ISO 安装
+### 11.3 [BMC + Worker] 从 Worker ISO 安装
 
-每台 Worker 物理机：
+这台 Worker 物理机：
 
 1. BMC 挂上 Worker SeedImage ISO。
 2. 本次启动从虚拟光驱进入 Live ISO。
@@ -601,15 +601,14 @@ VLAN 必须在安装前配完。Live ISO 上 NetworkManager 自动 DHCP 不会�
 
 #### 默认写法：VLAN 329 在 eth0 上（不是 bond）
 
-**[三台 Worker BMC Console]**，Live ISO 起来后立刻做。`eth0` 不能是 bond slave。三台示例地址（`10.243.166.20` 已占用就换同网段空闲地址，掩码仍是 `/26`）：
+**[Worker BMC Console]**，Live ISO 起来后立刻做。`eth0` 不能是 bond slave。掩码、网关、DNS 按现场另一台节点的网络参数写；地址示例是 `10.243.166.6`，若该地址已被那台节点占用，换同网段空闲地址，不要用 VIP `10.243.166.12`：
 
-| Worker | 节点地址 |
+| 项 | 默认值 |
 |---|---|
-| 1 | `10.243.166.31/26` |
-| 2 | `10.243.166.32/26` |
-| 3 | `10.243.166.33/26` |
-
-网关 `10.243.166.1`，DNS `8.8.8.8`。现场先确认这几个地址空闲。
+| 节点地址 | `10.243.166.6/26`（占用则换空闲地址） |
+| 网关 | `10.243.166.1` |
+| DNS | `10.243.132.38` |
+| VLAN | `329`，接口 `eth0.329` |
 
 ```bash
 # 如果上次误建了 bond，先拆掉，再配单网卡 VLAN
@@ -623,9 +622,9 @@ sudo nmcli con add type vlan ifname eth0.329 con-name vlan329 \
 
 sudo nmcli con mod vlan329 \
   ipv4.method manual \
-  ipv4.addresses 10.243.166.31/26 \
+  ipv4.addresses 10.243.166.6/26 \
   ipv4.gateway 10.243.166.1 \
-  ipv4.dns 8.8.8.8 \
+  ipv4.dns 10.243.132.38 \
   ipv6.method ignore
 
 sudo nmcli con up vlan329
@@ -635,7 +634,7 @@ ls /etc/NetworkManager/system-connections/
 nmcli -f NAME,UUID,TYPE,DEVICE,FILENAME connection show
 ```
 
-第二、三台把 `ipv4.addresses` 换成 `.32`、`.33`。必须能 ping 通网关，并且 `FILENAME` 指向磁盘上的 `*.nmconnection`，不能只在 `/run/NetworkManager/system-connections/`。
+必须能 ping 通网关，并且 `FILENAME` 指向磁盘上的 `*.nmconnection`，不能只在 `/run/NetworkManager/system-connections/`。
 
 `networkDevice` 填 VLAN 接口名 `eth0.329`，不要填物理口 `eth0`，也不要填 connection 名 `vlan329`。
 
@@ -654,9 +653,9 @@ sudo nmcli con add type vlan ifname bond0.329 con-name vlan329 \
   dev bond0 id 329
 sudo nmcli con mod vlan329 \
   ipv4.method manual \
-  ipv4.addresses 10.243.166.31/26 \
+  ipv4.addresses 10.243.166.6/26 \
   ipv4.gateway 10.243.166.1 \
-  ipv4.dns 8.8.8.8 \
+  ipv4.dns 10.243.132.38 \
   ipv6.method ignore
 sudo nmcli con up bond0
 sudo nmcli con up vlan329
@@ -694,25 +693,20 @@ kubectl -n cpaas-system get machineinventories.elemental.cattle.io \
   -l cpaas.io/node-role=worker -o wide
 ```
 
-Worker Inventory 名字由 Elemental 按 `olvm-workloadcluster-worker-${UUID}` 生成，现场才会出现。把三台真实名字记下来。
+Worker Inventory 名字由 Elemental 按 `olvm-workloadcluster-worker-${UUID}` 生成，现场才会出现。把这一台真实名字记下来。
 
-每台都要满足：`Ready=True`；报告了预期网络/IP；只有一套当前 Elemental 磁盘布局；allocation 为空或 `Available`；owner 字段为空。
+必须满足：`Ready=True`；报告了预期网络/IP（Live ISO 上配的地址，参考 `10.243.166.6`）；只有一套当前 Elemental 磁盘布局；allocation 为空或 `Available`；owner 字段为空。
 
 ```bash
-for inventory in \
-  <actual-worker-inventory-1> \
-  <actual-worker-inventory-2> \
-  <actual-worker-inventory-3>
-do
-  echo "===== ${inventory} ====="
-  kubectl -n cpaas-system describe machineinventory.elemental.cattle.io "${inventory}"
-  kubectl -n cpaas-system \
-    get machineinventory.elemental.cattle.io "${inventory}" \
-    -o jsonpath='name={.metadata.name}{"\n"}uid={.metadata.uid}{"\n"}allocation={.metadata.annotations.baremetal\.alauda\.io/allocation-state}{"\n"}baremetalMachine={.metadata.annotations.baremetal\.alauda\.io/owner-baremetalmachine}{"\n"}machine={.metadata.annotations.baremetal\.alauda\.io/owner-machine}{"\n"}cluster={.metadata.annotations.baremetal\.alauda\.io/owner-cluster}{"\n"}plan={.status.plan.secretRef.name}{"\n\n"}'
-done
+inventory=<actual-worker-inventory-1>
+echo "===== ${inventory} ====="
+kubectl -n cpaas-system describe machineinventory.elemental.cattle.io "${inventory}"
+kubectl -n cpaas-system \
+  get machineinventory.elemental.cattle.io "${inventory}" \
+  -o jsonpath='name={.metadata.name}{"\n"}uid={.metadata.uid}{"\n"}allocation={.metadata.annotations.baremetal\.alauda\.io/allocation-state}{"\n"}baremetalMachine={.metadata.annotations.baremetal\.alauda\.io/owner-baremetalmachine}{"\n"}machine={.metadata.annotations.baremetal\.alauda\.io/owner-machine}{"\n"}cluster={.metadata.annotations.baremetal\.alauda\.io/owner-cluster}{"\n"}plan={.status.plan.secretRef.name}{"\n\n"}'
 ```
 
-把三个 `<actual-worker-inventory-*>` 换成刚查到的真实名字。任一不是 `Ready=True`，或仍像 Live ISO 磁盘布局，不要加入 Worker Pool。
+把 `<actual-worker-inventory-1>` 换成刚查到的真实名字。不是 `Ready=True`，或仍像 Live ISO 磁盘布局，不要加入 Worker Pool。
 
 编辑 `manifests/08-worker-pool.yaml`。官方字段是 `machineInventories`。`networkDevice` 可选，覆盖 `BaremetalCluster.spec.networkDevice`。Worker 默认写成 `eth0.329`（VLAN 329 在 eth0 上，不是 bond）。先看 Inventory 的 `observedNetwork`，名字不是 `eth0.329` 时只改那一台；Master 不要动：
 
@@ -727,10 +721,6 @@ spec:
   clusterName: olvm-workloadcluster
   machineInventories:
     - name: <actual-worker-inventory-1>
-      networkDevice: eth0.329
-    - name: <actual-worker-inventory-2>
-      networkDevice: eth0.329
-    - name: <actual-worker-inventory-3>
       networkDevice: eth0.329
 ```
 
@@ -749,9 +739,9 @@ kubectl -n cpaas-system get machineinventorypools.infrastructure.cluster.x-k8s.i
 kubectl -n cpaas-system get machineinventorypool olvm-workloadcluster-worker-pool -o yaml
 ```
 
-成功标准：`status.available ≥ 3`，并且 Pool Ready/MembersValid。某台 Worker 的 CNI 网卡不是 `eth0.329` 时（例如交换机捆绑后变成 `bond0.329`），先看该 Inventory 的 `observedNetwork`，再改 `08` 里这一台的 `networkDevice`。不要改 `BaremetalCluster.spec.networkDevice`。
+成功标准：`status.available ≥ 1`，并且 Pool Ready/MembersValid。这台 Worker 的 CNI 网卡不是 `eth0.329` 时（例如交换机捆绑后变成 `bond0.329`），先看该 Inventory 的 `observedNetwork`，再改 `08` 里这一台的 `networkDevice`。不要改 `BaremetalCluster.spec.networkDevice`。
 
-容量不够时，不要继续 Step 2。回去再注册主机、弹出 ISO、确认 Inventory Ready，再把名字追加进 `08`。
+容量不够时，不要继续 Step 2。回去再注册主机、弹出 ISO、确认 Inventory Ready，再把名字写进 `08`。
 
 ### 11.6 官方 Step 2：Worker BaremetalMachineTemplate
 
@@ -802,7 +792,7 @@ kubectl -n cpaas-system get kubeadmconfigtemplate \
 
 文件：`manifests/11-worker-machine-deployment.yaml`。已按官方字段填好：
 
-- `replicas: 3`
+- `replicas: 1`
 - `version: v1.34.5-3`
 - `strategy.rollingUpdate.maxSurge: 0`
 - `strategy.rollingUpdate.maxUnavailable: 1`
@@ -826,9 +816,9 @@ kubectl --kubeconfig workload-kubeconfig get nodes -o wide
 
 成功标准：
 
-- `MachineDeployment` `olvm-workloadcluster-worker-deployment` 存在，replicas=3
+- `MachineDeployment` `olvm-workloadcluster-worker-deployment` 存在，replicas=1
 - `BaremetalMachine` 按 `Pending → Allocated → Reprovisioning → Running` 前进
-- Workload 集群出现 3 台 Worker Node，并且 Ready
+- Workload 集群出现 1 台 Worker Node，并且 Ready
 - 节点带 `kube-ovn/role=worker`
 - Worker Pool 的 `available` 随绑定下降
 
@@ -854,7 +844,7 @@ systemctl is-active containerd
 - 任一 MachineInventory 不是 `Ready=True`，或看不到正常磁盘布局；
 - 多盘重装时 `/dev/elemental-install-target` 未明确指向系统盘；
 - server dry-run 失败；
-- Pool available 小于 3；
+- Control Plane Pool available 小于 3，或 Worker Pool available 小于 1；
 - Registry、Image Catalog、LB、CIDR 或 SSH 公钥未确认；
 - 要 apply 的 YAML 中仍存在 `<...>`、`填写实际` 或 `PROVIDER_ID` 占位内容；
 - Worker 物理机尚未注册出真实 Inventory，就去 apply `08`；

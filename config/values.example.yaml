@@ -39,22 +39,18 @@ control_plane:
   # Extra disks are mounted on the node after the cluster is Ready.
   # Do not declare them in MachineInventory.spec.storage during deploy.
 workers:
-  replicas: 3
+  replicas: 1
   # Default Worker host/CNI NIC: VLAN 329 on eth0, not a bond.
-  # IP belongs on eth0.329, never on eth0. Confirm unused addresses
-  # in 10.243.166.0/26 before using the examples.
+  # IP belongs on eth0.329, never on eth0. Mask/gateway/DNS from
+  # the customer node sheet. 10.243.166.6 is that node's address;
+  # if it is already in use, pick a free address in /26. Do not
+  # use VIP 10.243.166.12.
   vlan_id: 329
   network_device: eth0.329
   gateway: 10.243.166.1
-  dns: 8.8.8.8
+  dns: 10.243.132.38
   prefix: 26
   inventories:
     - name: <actual-worker-inventory-1>
       network_device: eth0.329
-      address: 10.243.166.31/26
-    - name: <actual-worker-inventory-2>
-      network_device: eth0.329
-      address: 10.243.166.32/26
-    - name: <actual-worker-inventory-3>
-      network_device: eth0.329
-      address: 10.243.166.33/26
+      address: 10.243.166.6/26

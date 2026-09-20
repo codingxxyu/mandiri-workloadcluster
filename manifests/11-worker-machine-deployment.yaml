@@ -1,5 +1,6 @@
 # Official ACP 4.3.2 worker MachineDeployment.
-# Bare-metal cannot over-provision: keep maxSurge 0 and maxUnavailable 1.
+# Default is one Worker per cluster. Bare-metal cannot over-provision:
+# keep maxSurge 0 and maxUnavailable 1.
 apiVersion: cluster.x-k8s.io/v1beta1
 kind: MachineDeployment
 metadata:
@@ -7,7 +8,7 @@ metadata:
   namespace: cpaas-system
 spec:
   clusterName: olvm-workloadcluster
-  replicas: 3
+  replicas: 1
   strategy:
     type: RollingUpdate
     rollingUpdate:

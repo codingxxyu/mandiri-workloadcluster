@@ -1,7 +1,7 @@
 # Apply only after Worker machines have left the Live ISO,
 # registered as MachineInventory, and are Ready=True.
 # Replace machineInventories[].name with the real Worker inventory
-# names first.
+# name first. Default is one Worker per cluster.
 #
 # Default CNI NIC is VLAN 329 on eth0 (not a bond). Do not change
 # BaremetalCluster.spec.networkDevice; Masters stay on eth0.
@@ -17,8 +17,4 @@ spec:
   clusterName: olvm-workloadcluster
   machineInventories:
     - name: <actual-worker-inventory-1>
-      networkDevice: eth0.329
-    - name: <actual-worker-inventory-2>
-      networkDevice: eth0.329
-    - name: <actual-worker-inventory-3>
       networkDevice: eth0.329
