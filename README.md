@@ -50,6 +50,7 @@ olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62
 |---|---|---|
 | **[Global Master 01]** | `global-master01`，当前 `kubectl` 已连接 Global | 查询/修改 Kubernetes 资源、检查 MachineInventory、apply 集群 YAML |
 | **[三台 Master 都执行]** | 三台已注册的裸金属 Master 本机/BMC Console | 核对 ISO 已弹出、从系统盘启动、系统盘挂载正常；集群 Ready 后再手工挂数据盘 |
+| **[三台 Worker BMC Console]** | 三台 Worker 物理机 IPMI/串口，Live ISO 控制台 | 安装前在 eth0 上建 VLAN 329、配静态地址、确认能 ping 网关 |
 | **[LB 管理端]** | 客户负载均衡器管理界面 | 核对 External LB VIP `10.243.166.12`、TCP 6443 listener 和三台 Master 后端 |
 | **[Workload kubeconfig]** | Global Master 01，但显式使用生成的 `workload-kubeconfig` | 检查业务集群 Node/Pod |
 
@@ -136,7 +137,7 @@ printf 'Workload API VIP: 10.243.166.12\n'
 | `manifests/06-workload-control-plane.yaml` | `sshAuthorizedKeys` | `${SSH_PUBLIC_KEY}` 的实际完整输出 |
 | `manifests/07-worker-registration-seedimage.yaml` | `SeedImage.spec.baseImage` | 与 `01` 相同的 ISO 镜像地址 |
 | `manifests/08-worker-pool.yaml` | `spec.machineInventories[].name` | Worker 物理机注册后出现的真实 `MachineInventory` 名字 |
-| `manifests/08-worker-pool.yaml` | `spec.machineInventories[].networkDevice` | 该 Worker 的 Kube-OVN 网卡名；默认 `eth0`，bond 或非 `eth0` 时改这一台 |
+| `manifests/08-worker-pool.yaml` | `spec.machineInventories[].networkDevice` | Worker 默认 `eth0.329`（VLAN 329 在 eth0 上，不是 bond）。现场 `observedNetwork` 名字不同时只改这一台 |
 | `manifests/10-worker-kubeadm-config-template.yaml` | `sshAuthorizedKeys` | 与 KCP 相同的 `${SSH_PUBLIC_KEY}` |
 | 多盘主机系统盘 | Live ISO 上的 `/dev/elemental-install-target` | 该主机系统盘的 `/dev/disk/by-id/wwn-*` |
 
@@ -369,7 +370,7 @@ External LB 必须已创建 TCP 6443 listener，后端会是三台 Master。若�
 覆盖规则：
 
 - 全部节点都用同一块网卡：只改 `BaremetalCluster.spec.networkDevice`，例如改成 `eth1` 或 `bond1`。
-- 只有某台名字不同（bond、或不是集群默认那块）：改对应 Pool 条目的 `machineInventories[].networkDevice`，不要改集群默认。
+- 只有某台名字不同（Worker VLAN、bond、或不是集群默认那块）：改对应 Pool 条目的 `machineInventories[].networkDevice`，不要改集群默认。Worker 默认覆盖是 `eth0.329`，Master 继续 `eth0`，已装好的 Master 不用重做。
 - Overlay 时这块网卡必须有 IPv4（Geneve 源地址）。Underlay 时可以没有地址，但不能是带节点地址和默认路由的那块网卡。
 - 地址由主机自己的 NetworkManager 提供，provider 不配 IP。
 - 写成 bond 的 slave 名会报 `NetworkDeviceIsSlave`，要写聚合口。
@@ -381,7 +382,7 @@ kubectl -n cpaas-system get machineinventory.elemental.cattle.io \
   -o jsonpath='{range .spec.observedNetwork.interfaces[*]}{.name} kind={.kind} master={.master} {.addresses}{"\n"}{end}'
 ```
 
-某台不是 `eth0` 时，在 `02` 里只改那一台的 `networkDevice`。Worker 同样改 `08`。
+某台 Master 不是 `eth0` 时，在 `02` 里只改那一台的 `networkDevice`。Worker 默认写在 `08`，是 `eth0.329`，不要把集群默认改成 VLAN。
 
 ### 8.2 Registry 和 CIDR
 
@@ -590,10 +591,79 @@ kubectl -n cpaas-system get seedimage olvm-workloadcluster-worker-registration-i
 1. BMC 挂上 Worker SeedImage ISO。
 2. 本次启动从虚拟光驱进入 Live ISO。
 3. 多盘主机按第 4.1 节创建 `/dev/elemental-install-target`，确认指向系统盘。
-4. 等 Elemental 安装并自动重启。
-5. 安装触发重启后，立即弹出/卸载 ISO。
-6. 把启动顺序改回 disk-first。
-7. 确认下一次启动进入已安装 OS，不是再次进入 Live ISO。
+4. **先配 VLAN 329，再让主机注册。** 默认不是 bond：IP 配在 `eth0.329` 上，不要配在 `eth0` 上。VLAN 写在 Live ISO 控制台，不写进 Registration YAML。
+5. 等 Elemental 安装并自动重启。
+6. 安装触发重启后，立即弹出/卸载 ISO。
+7. 把启动顺序改回 disk-first。
+8. 确认下一次启动进入已安装 OS，不是再次进入 Live ISO。
+
+VLAN 必须在安装前配完。Live ISO 上 NetworkManager 自动 DHCP 不会写进 `observedNetwork.connections`；安装后只回放注册时拍到的 keyfile。Master 已经按 `eth0` 跑了，不要改 `BaremetalCluster.spec.networkDevice`。
+
+#### 默认写法：VLAN 329 在 eth0 上（不是 bond）
+
+**[三台 Worker BMC Console]**，Live ISO 起来后立刻做。`eth0` 不能是 bond slave。三台示例地址（`10.243.166.20` 已占用就换同网段空闲地址，掩码仍是 `/26`）：
+
+| Worker | 节点地址 |
+|---|---|
+| 1 | `10.243.166.31/26` |
+| 2 | `10.243.166.32/26` |
+| 3 | `10.243.166.33/26` |
+
+网关 `10.243.166.1`，DNS `8.8.8.8`。现场先确认这几个地址空闲。
+
+```bash
+# 如果上次误建了 bond，先拆掉，再配单网卡 VLAN
+sudo nmcli con down vlan329 2>/dev/null || true
+sudo nmcli con down bond0 2>/dev/null || true
+sudo nmcli con delete vlan329 bond0 bond0-port1 bond0-port2 2>/dev/null || true
+
+# 只在 eth0 上做 VLAN 329；IP 必须在 eth0.329，不是 eth0
+sudo nmcli con add type vlan ifname eth0.329 con-name vlan329 \
+  dev eth0 id 329
+
+sudo nmcli con mod vlan329 \
+  ipv4.method manual \
+  ipv4.addresses 10.243.166.31/26 \
+  ipv4.gateway 10.243.166.1 \
+  ipv4.dns 8.8.8.8 \
+  ipv6.method ignore
+
+sudo nmcli con up vlan329
+ping -c 3 10.243.166.1
+ip -br addr show eth0.329
+ls /etc/NetworkManager/system-connections/
+nmcli -f NAME,UUID,TYPE,DEVICE,FILENAME connection show
+```
+
+第二、三台把 `ipv4.addresses` 换成 `.32`、`.33`。必须能 ping 通网关，并且 `FILENAME` 指向磁盘上的 `*.nmconnection`，不能只在 `/run/NetworkManager/system-connections/`。
+
+`networkDevice` 填 VLAN 接口名 `eth0.329`，不要填物理口 `eth0`，也不要填 connection 名 `vlan329`。
+
+如果这样还不通：不是 nmcli 写错，是交换机把 `eth0`/`eth1` 绑成一组了。单口 `eth0` 交换机不放行，改用下面的备选 bond，或者让网络改端口。
+
+#### 备选：交换机已把两口绑成一组时，用 bond + VLAN 329
+
+客户现场常见是 **active-backup，不是 LACP**。IP 仍配在 VLAN 上，不要配在 `eth0` / `bond0`。
+
+```bash
+sudo nmcli con add type bond ifname bond0 con-name bond0 \
+  mode active-backup miimon 100
+sudo nmcli con add type ethernet ifname eth0 con-name bond0-port1 master bond0
+sudo nmcli con add type ethernet ifname eth1 con-name bond0-port2 master bond0
+sudo nmcli con add type vlan ifname bond0.329 con-name vlan329 \
+  dev bond0 id 329
+sudo nmcli con mod vlan329 \
+  ipv4.method manual \
+  ipv4.addresses 10.243.166.31/26 \
+  ipv4.gateway 10.243.166.1 \
+  ipv4.dns 8.8.8.8 \
+  ipv6.method ignore
+sudo nmcli con up bond0
+sudo nmcli con up vlan329
+ping -c 3 10.243.166.1
+```
+
+这时 `08` 里这一台改成 `networkDevice: bond0.329`。不要写 `eth0`、`eth1` 或 `bond0`：前两个是 slave，会报 `NetworkDeviceIsSlave`；`bond0` 没有节点地址。Master 的 `03` / `02` 仍然是 `eth0`。
 
 登录已安装系统检查：
 
@@ -644,18 +714,24 @@ done
 
 把三个 `<actual-worker-inventory-*>` 换成刚查到的真实名字。任一不是 `Ready=True`，或仍像 Live ISO 磁盘布局，不要加入 Worker Pool。
 
-编辑 `manifests/08-worker-pool.yaml`。官方字段是 `machineInventories`。`networkDevice` 可选，覆盖 `BaremetalCluster.spec.networkDevice`。默认写成 `eth0`；某台是 bond 或别的网卡名时只改那一台：
+编辑 `manifests/08-worker-pool.yaml`。官方字段是 `machineInventories`。`networkDevice` 可选，覆盖 `BaremetalCluster.spec.networkDevice`。Worker 默认写成 `eth0.329`（VLAN 329 在 eth0 上，不是 bond）。先看 Inventory 的 `observedNetwork`，名字不是 `eth0.329` 时只改那一台；Master 不要动：
+
+```bash
+kubectl -n cpaas-system get machineinventory.elemental.cattle.io \
+  <actual-worker-inventory-1> \
+  -o jsonpath='{range .spec.observedNetwork.interfaces[*]}{.name} kind={.kind} master={.master} {.addresses}{"\n"}{end}'
+```
 
 ```yaml
 spec:
   clusterName: olvm-workloadcluster
   machineInventories:
     - name: <actual-worker-inventory-1>
-      networkDevice: eth0
+      networkDevice: eth0.329
     - name: <actual-worker-inventory-2>
-      networkDevice: eth0
+      networkDevice: eth0.329
     - name: <actual-worker-inventory-3>
-      networkDevice: eth0
+      networkDevice: eth0.329
 ```
 
 ```bash
@@ -673,7 +749,7 @@ kubectl -n cpaas-system get machineinventorypools.infrastructure.cluster.x-k8s.i
 kubectl -n cpaas-system get machineinventorypool olvm-workloadcluster-worker-pool -o yaml
 ```
 
-成功标准：`status.available ≥ 3`，并且 Pool Ready/MembersValid。某台 Worker 的 CNI 网卡不是 `eth0` 时，先看该 Inventory 的 `observedNetwork`，再改 `08` 里这一台的 `networkDevice`。
+成功标准：`status.available ≥ 3`，并且 Pool Ready/MembersValid。某台 Worker 的 CNI 网卡不是 `eth0.329` 时（例如交换机捆绑后变成 `bond0.329`），先看该 Inventory 的 `observedNetwork`，再改 `08` 里这一台的 `networkDevice`。不要改 `BaremetalCluster.spec.networkDevice`。
 
 容量不够时，不要继续 Step 2。回去再注册主机、弹出 ISO、确认 Inventory Ready，再把名字追加进 `08`。
 
@@ -783,7 +859,8 @@ systemctl is-active containerd
 - 要 apply 的 YAML 中仍存在 `<...>`、`填写实际` 或 `PROVIDER_ID` 占位内容；
 - Worker 物理机尚未注册出真实 Inventory，就去 apply `08`；
 - Worker SeedImage 还不是 `SeedImageReady=True`，就去给 Worker 挂 ISO；
-- `networkDevice` 写成了 bond slave，或 Inventory `observedNetwork` 里没有这块网卡。
+- `networkDevice` 写成了 bond slave、物理口 `eth0`，或 Inventory `observedNetwork` 里没有这块网卡；
+- Worker 还在 Live ISO 上、VLAN 329 还没通，就让 Elemental 安装。
 
 ## 13. Apply 前逐机与网络检查清单
 
@@ -921,7 +998,7 @@ grep -nE '<[^>]+>|填写实际|provider-id' \
   manifests/10-worker-kubeadm-config-template.yaml
 ```
 
-`07` 的 Registry 必须已经替换。`08` 必须等 Worker Inventory 真实出现后再替换，不要提前 apply。`10` 的 SSH 公钥必须和第 1.3 节一致，且不要预填 `provider-id`。
+`07` 的 Registry 必须已经替换。`08` 必须等 Worker Inventory 真实出现后再替换，不要提前 apply。`08` 的 `networkDevice` 默认是 `eth0.329`，必须和该 Inventory `observedNetwork` 里的 VLAN 接口名一致。`10` 的 SSH 公钥必须和第 1.3 节一致，且不要预填 `provider-id`。不要改 `03` 里 Master 的 `networkDevice: eth0`。
 
 Worker Inventory Ready 并写入 Pool 后，先确认官方 Step 1 的容量，再 dry-run Step 2–4：
 

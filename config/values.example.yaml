@@ -20,7 +20,8 @@ network:
   kube_ovn_join_cidr: 100.15.0.0/16
   kube_ovn_version: v4.3.11
   # Cluster-wide CNI NIC. Optional in the API (default eth0). Keep it
-  # explicit in BaremetalCluster.spec.networkDevice.
+  # explicit in BaremetalCluster.spec.networkDevice. Masters already
+  # run on eth0; do not change this when Workers use VLAN 329.
   network_device: eth0
   # Per-host override lives on MachineInventoryPool.spec.machineInventories[].networkDevice.
   # Change only that host when it uses a bond or a NIC that is not eth0.
@@ -39,10 +40,21 @@ control_plane:
   # Do not declare them in MachineInventory.spec.storage during deploy.
 workers:
   replicas: 3
+  # Default Worker host/CNI NIC: VLAN 329 on eth0, not a bond.
+  # IP belongs on eth0.329, never on eth0. Confirm unused addresses
+  # in 10.243.166.0/26 before using the examples.
+  vlan_id: 329
+  network_device: eth0.329
+  gateway: 10.243.166.1
+  dns: 8.8.8.8
+  prefix: 26
   inventories:
     - name: <actual-worker-inventory-1>
-      network_device: eth0
+      network_device: eth0.329
+      address: 10.243.166.31/26
     - name: <actual-worker-inventory-2>
-      network_device: eth0
+      network_device: eth0.329
+      address: 10.243.166.32/26
     - name: <actual-worker-inventory-3>
-      network_device: eth0
+      network_device: eth0.329
+      address: 10.243.166.33/26

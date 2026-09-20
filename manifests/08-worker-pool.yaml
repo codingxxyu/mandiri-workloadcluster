@@ -1,8 +1,13 @@
 # Apply only after Worker machines have left the Live ISO,
 # registered as MachineInventory, and are Ready=True.
 # Replace machineInventories[].name with the real Worker inventory
-# names first. networkDevice is optional and overrides the cluster
-# default for that host only (bond, or a NIC that is not eth0).
+# names first.
+#
+# Default CNI NIC is VLAN 329 on eth0 (not a bond). Do not change
+# BaremetalCluster.spec.networkDevice; Masters stay on eth0.
+# If observedNetwork shows a different VLAN ifname, change only
+# that host. Use bond0.329 only when the switch has bundled the
+# two ports and a single eth0.329 cannot pass traffic.
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: MachineInventoryPool
 metadata:
@@ -12,8 +17,8 @@ spec:
   clusterName: olvm-workloadcluster
   machineInventories:
     - name: <actual-worker-inventory-1>
-      networkDevice: eth0
+      networkDevice: eth0.329
     - name: <actual-worker-inventory-2>
-      networkDevice: eth0
+      networkDevice: eth0.329
     - name: <actual-worker-inventory-3>
-      networkDevice: eth0
+      networkDevice: eth0.329
