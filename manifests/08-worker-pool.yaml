@@ -17,4 +17,5 @@ spec:
   clusterName: olvm-workloadcluster
   machineInventories:
     - name: <actual-worker-inventory-1>
+      hostname: olvm-workloadcluster-worker01
       networkDevice: eth0.329

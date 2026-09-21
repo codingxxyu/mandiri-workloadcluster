@@ -19,7 +19,7 @@ spec:
     infrastructureRef:
       apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
       kind: BaremetalMachineTemplate
-      name: olvm-workloadcluster-control-plane-machine-template
+      name: olvm-workloadcluster-control-plane-template
   kubeadmConfigSpec:
     users:
       - name: boot

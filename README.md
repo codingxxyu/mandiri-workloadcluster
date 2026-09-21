@@ -72,7 +72,7 @@ export OS_IMAGE_TAG=v4.3.2-1-1.34.5-3
 
 `hostname` 必须确认当前是 `global-master01`；`kubectl cluster-info` 必须指向现有 Global。本文不需要额外 kubeconfig 路径。
 
-读取 Global Registry：
+读取 Global Registry。现场已确认是 `10.243.166.5:11443`：
 
 ```bash
 export GLOBAL_REGISTRY="$(kubectl -n cpaas-system get cluster global \
@@ -82,7 +82,7 @@ export BASE_IMAGE_ISO=${GLOBAL_REGISTRY}/tkestack/baremetal-base-image-iso:${OS_
 printf 'GLOBAL_REGISTRY=%s\n' "${GLOBAL_REGISTRY}"
 ```
 
-如果输出为空，停止执行，先确认 Global 的实际 Registry 配置。
+输出必须是 `10.243.166.5:11443`。为空或不是这个地址，停止执行，先确认 Global 的实际 Registry 配置。
 
 ### 1.2 在 LB 管理端完成
 
@@ -129,14 +129,17 @@ printf 'Workload API VIP: 10.243.166.12\n'
 
 | 文件 | 要修改或确认的字段 | 值的来源 |
 |---|---|---|
-| `manifests/01-workload-registration-seedimage.yaml` | `SeedImage.spec.baseImage` | `${GLOBAL_REGISTRY}/tkestack/baremetal-base-image-iso:v4.3.2-1-1.34.5-3` |
-| `manifests/02-workload-control-plane-pool.yaml` | `spec.machineInventories[].networkDevice` | 该 Master 的 Kube-OVN 网卡名；默认 `eth0`，bond 或非 `eth0` 时改这一台 |
+| `manifests/01-workload-registration-seedimage.yaml` | `SeedImage.spec.baseImage` | 已填写 `10.243.166.5:11443/tkestack/baremetal-base-image-iso:v4.3.2-1-1.34.5-3`。现场资源名是 `olvm-workloadcluster-registration` / `olvm-workloadcluster-registration-iso` |
+| `manifests/02-workload-control-plane-pool.yaml` | `spec.machineInventories[]` | 已填三台真实 Inventory、`hostname`（`cpw01`–`cpw03`）和 `networkDevice: eth0` |
 | `manifests/03-workload-baremetal-cluster.yaml` | `spec.controlPlaneLoadBalancer.host` | 已填写 `10.243.166.12` |
 | `manifests/03-workload-baremetal-cluster.yaml` | `spec.networkType` / `spec.networkDevice` | 已填写 `kube-ovn` / `eth0`。集群默认 CNI 网卡；只在全员都换网卡时改这里 |
-| `manifests/05-workload-cluster.yaml` | `metadata.annotations.cpaas.io/registry-address` | `${GLOBAL_REGISTRY}` 的实际输出 |
+| `manifests/04-workload-control-plane-machine-template.yaml` | `metadata.name` | 现场名 `olvm-workloadcluster-control-plane-template` |
+| `manifests/05-workload-cluster.yaml` | `metadata.annotations.cpaas.io/registry-address` | 已填写 `10.243.166.5:11443` |
 | `manifests/06-workload-control-plane.yaml` | `sshAuthorizedKeys` | `${SSH_PUBLIC_KEY}` 的实际完整输出 |
-| `manifests/07-worker-registration-seedimage.yaml` | `SeedImage.spec.baseImage` | 与 `01` 相同的 ISO 镜像地址 |
+| `manifests/06-workload-control-plane.yaml` | `machineTemplate.infrastructureRef.name` | 已指向 `olvm-workloadcluster-control-plane-template` |
+| `manifests/07-worker-registration-seedimage.yaml` | `SeedImage.spec.baseImage` | 已填写与 `01` 相同的 ISO 地址。Worker 必须用自己的 Registration/SeedImage，不要复用 Master 那套 |
 | `manifests/08-worker-pool.yaml` | `spec.machineInventories[].name` | Worker 物理机注册后出现的真实 `MachineInventory` 名字 |
+| `manifests/08-worker-pool.yaml` | `spec.machineInventories[].hostname` | 默认 `olvm-workloadcluster-worker01` |
 | `manifests/08-worker-pool.yaml` | `spec.machineInventories[].networkDevice` | Worker 默认 `eth0.329`（VLAN 329 在 eth0 上，不是 bond）。现场 `observedNetwork` 名字不同时只改这一台 |
 | `manifests/10-worker-kubeadm-config-template.yaml` | `sshAuthorizedKeys` | 与 KCP 相同的 `${SSH_PUBLIC_KEY}` |
 | 多盘主机系统盘 | Live ISO 上的 `/dev/elemental-install-target` | 该主机系统盘的 `/dev/disk/by-id/wwn-*` |
@@ -168,7 +171,7 @@ kubectl \
 
 ```yaml
 data:
-  v1.34.5-3: ${GLOBAL_REGISTRY}/tkestack/baremetal-base-image:v4.3.2-1-1.34.5-3
+  v1.34.5-3: 10.243.166.5:11443/tkestack/baremetal-base-image:v4.3.2-1-1.34.5-3
 ```
 
 如果没有，使用 merge patch，保留已有版本：
@@ -322,17 +325,20 @@ lsblk -d -o NAME,PATH,SIZE,MODEL,SERIAL,WWN,HCTL \
 
 ## 7. 创建 Control Plane Pool
 
-文件：`manifests/02-workload-control-plane-pool.yaml`。已经填入三个真实 Inventory。官方字段是 `machineInventories`，不是 `inventoryRefs`。`networkDevice` 可选，用来覆盖集群默认 CNI 网卡；当前三台都按 `eth0` 写明。某台实际是 bond 或别的网卡名时，只改那一台：
+文件：`manifests/02-workload-control-plane-pool.yaml`。已经按现场填写三个真实 Inventory、`hostname` 和 `networkDevice`。官方字段是 `machineInventories`，不是 `inventoryRefs`。顺序与现场一致：`cpw01` → `cpw02` → `cpw03`。`networkDevice` 可选，用来覆盖集群默认 CNI 网卡；当前三台都按 `eth0` 写明。某台实际是 bond 或别的网卡名时，只改那一台：
 
 ```yaml
 spec:
   clusterName: olvm-workloadcluster
   machineInventories:
+    - name: olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62
+      hostname: olvm-workloadcluster-cpw01
+      networkDevice: eth0
     - name: olvm-workloadcluster-2859b4f7-a97f-4f3b-a5c3-aad410030137
+      hostname: olvm-workloadcluster-cpw02
       networkDevice: eth0
     - name: olvm-workloadcluster-d6bbbcff-a3c9-4aee-8e2b-e78eca996b12
-      networkDevice: eth0
-    - name: olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62
+      hostname: olvm-workloadcluster-cpw03
       networkDevice: eth0
 ```
 
@@ -399,7 +405,7 @@ metadata:
     cpaas.io/alb-address-type: ClusterAddress
     cpaas.io/kube-ovn-join-cidr: 100.15.0.0/16
     cpaas.io/kube-ovn-version: v4.3.11
-    cpaas.io/registry-address: ${GLOBAL_REGISTRY}
+    cpaas.io/registry-address: 10.243.166.5:11443
 spec:
   clusterNetwork:
     pods:
@@ -408,7 +414,7 @@ spec:
       cidrBlocks: [100.14.0.0/16]
 ```
 
-把 `${GLOBAL_REGISTRY}` 换成第 1.1 节实际输出。三个 CIDR 不得与 Global、物理网络、管理网、存储网或其他 Workload 冲突。前四个 annotation 和 `cluster-type` 是官方必填，不要删。本次是 overlay，不要加 `kube-ovn.cpaas.io/transmit-type: underlay`。
+Registry 已按现场填写。三个 CIDR 不得与 Global、物理网络、管理网、存储网或其他 Workload 冲突。前四个 annotation 和 `cluster-type` 是官方必填，不要删。本次是 overlay，不要加 `kube-ovn.cpaas.io/transmit-type: underlay`。
 
 ### 8.3 KCP
 
@@ -419,7 +425,7 @@ spec:
 - `version: v1.34.5-3`
 - `dns.imageTag: 1.14.2-v4.3.11`
 - `etcd.local.imageTag: v3.5.28-260625`
-- `machineTemplate.infrastructureRef.name: olvm-workloadcluster-control-plane-machine-template`
+- `machineTemplate.infrastructureRef.name: olvm-workloadcluster-control-plane-template`
 
 apply 前只替换 SSH 公钥：
 
@@ -524,14 +530,14 @@ findmnt /
 | 官方 Step 3 | Worker bootstrap | `manifests/10-worker-kubeadm-config-template.yaml` | `KubeadmConfigTemplate` |
 | 官方 Step 4 | 副本、版本、滚动策略 | `manifests/11-worker-machine-deployment.yaml` | `MachineDeployment` |
 
-当前 `08` 里还是占位名字，`07` 的 Registry 和 `10` 的 SSH 公钥也还没替换。没填完不要 apply。
+当前 `08` 里还是占位 Inventory 名字，`10` 的 SSH 公钥也还没替换。`07` 的 Registry 已写成 `10.243.166.5:11443`。没填完不要 apply。Worker 不要复用 Master 的 `olvm-workloadcluster-registration` ISO。
 
 官方四个 Worker 对象对应本项目名字：
 
 | 官方占位 | 本项目实际名字 |
 |---|---|
 | `<cluster-name>-worker-pool` | `olvm-workloadcluster-worker-pool` |
-| `<cluster-name>-worker-template` | `olvm-workloadcluster-worker-machine-template` |
+| `<cluster-name>-worker-template` | `olvm-workloadcluster-worker-template` |
 | `<cluster-name>-worker-bootstrap` | `olvm-workloadcluster-worker-kubeadm-config` |
 | `<cluster-name>-workers` | `olvm-workloadcluster-worker-deployment` |
 
@@ -558,14 +564,12 @@ kubectl -n cpaas-system get configmap elemental-image-catalog -o yaml
 
 ### 11.2 [Global Master 01] 创建 Worker SeedImage
 
-编辑 `manifests/07-worker-registration-seedimage.yaml`，只改 Registry，不要改 `${System Information/UUID}` 这类 Elemental 表达式：
+编辑 `manifests/07-worker-registration-seedimage.yaml`。Registry 已写成现场 `10.243.166.5:11443`，不要改 `${System Information/UUID}` 这类 Elemental 表达式：
 
 ```yaml
 spec:
-  baseImage: ${GLOBAL_REGISTRY}/tkestack/baremetal-base-image-iso:v4.3.2-1-1.34.5-3
+  baseImage: 10.243.166.5:11443/tkestack/baremetal-base-image-iso:v4.3.2-1-1.34.5-3
 ```
-
-把 `${GLOBAL_REGISTRY}` 换成第 1.1 节实际输出。
 
 ```bash
 vi manifests/07-worker-registration-seedimage.yaml
@@ -721,6 +725,7 @@ spec:
   clusterName: olvm-workloadcluster
   machineInventories:
     - name: <actual-worker-inventory-1>
+      hostname: olvm-workloadcluster-worker01
       networkDevice: eth0.329
 ```
 
@@ -753,7 +758,7 @@ kubectl -n cpaas-system get machineinventorypool olvm-workloadcluster-worker-poo
 kubectl apply --dry-run=server -f manifests/09-worker-machine-template.yaml
 kubectl apply -f manifests/09-worker-machine-template.yaml
 kubectl -n cpaas-system get baremetalmachinetemplate \
-  olvm-workloadcluster-worker-machine-template
+  olvm-workloadcluster-worker-template
 ```
 
 这个模板创建后，pool 引用视为不可变。以后要换 Pool，必须新建一个模板名字，再改 MachineDeployment 的 `infrastructureRef.name`。原地改现有模板不会滚动节点。
@@ -988,7 +993,7 @@ grep -nE '<[^>]+>|填写实际|provider-id' \
   manifests/10-worker-kubeadm-config-template.yaml
 ```
 
-`07` 的 Registry 必须已经替换。`08` 必须等 Worker Inventory 真实出现后再替换，不要提前 apply。`08` 的 `networkDevice` 默认是 `eth0.329`，必须和该 Inventory `observedNetwork` 里的 VLAN 接口名一致。`10` 的 SSH 公钥必须和第 1.3 节一致，且不要预填 `provider-id`。不要改 `03` 里 Master 的 `networkDevice: eth0`。
+`07` 的 Registry 已是 `10.243.166.5:11443`。`08` 必须等 Worker Inventory 真实出现后再替换名字，不要提前 apply。`08` 的 `hostname` 默认 `olvm-workloadcluster-worker01`，`networkDevice` 默认 `eth0.329`，必须和该 Inventory `observedNetwork` 里的 VLAN 接口名一致。`10` 的 SSH 公钥必须和第 1.3 节一致，且不要预填 `provider-id`。不要改 `03` 里 Master 的 `networkDevice: eth0`。
 
 Worker Inventory Ready 并写入 Pool 后，先确认官方 Step 1 的容量，再 dry-run Step 2–4：
 
@@ -1004,3 +1009,51 @@ do
   kubectl apply --dry-run=server -f "${file}"
 done
 ```
+
+## 14. 问题解决
+
+### 14.1 物理服务器已存在操作系统
+
+**现象：** 物理机硬盘上已经有旧系统（分区、`EFI` / `ROOT` / `COS_*` 标签还在）。从 SeedImage ISO 进入 Live 引导后，Elemental 安装选盘失败、装到错误设备，或旧分区标签干扰重装。
+
+**适用：** 在 **Live ISO 控制台** 操作，还没有开始 Elemental 安装。Master 和 Worker 都可能遇到。本例是单盘主机，真实盘是 `sda`，数据在 `sda3`。
+
+**可以做：**
+
+- 确认后删/格式化 `sda`，不会把当前 Live installer 弄挂。
+- 清掉之后，这块盘上的旧系统不可恢复。先确认没有还要保留的数据（日志、kube 数据、`/var/cpaas` 等）。
+
+**不要做：**
+
+- 不要对 `sr1`、`loop0` 做 wipe/format。那是 ISO 和 Live 根，清了 installer 会挂。
+- 不要靠“第一块盘”这种默认值。安装目标必须明确指定要装的那块盘。
+- `MachineRegistration` 里的 `install.device` 本项目仍用 `/dev/elemental-install-target`。这里的 `/dev/sda` 只是 Live ISO 上 `lsblk` 确认后的真实盘名，用来清旧分区。
+
+**操作：**
+
+先确认没有挂载：
+
+```bash
+lsblk
+mount | grep sda || true
+```
+
+如果 `sda` 分区被挂上了，先卸载：
+
+```bash
+umount /dev/sda3 /dev/sda2 /dev/sda1 2>/dev/null || true
+```
+
+然后清签名和分区表（比单纯 mkfs 更干净，COS 重装也要求清掉残留标签）：
+
+```bash
+wipefs -a /dev/sda
+sgdisk -Z /dev/sda
+partprobe /dev/sda
+lsblk
+blkid
+```
+
+清完后 `sda` 应该没有分区，`blkid` 里也不该再看到 `EFI` / `ROOT` / `COS_*`。
+
+然后再走安装。安装目标明确指定这块系统盘：多盘主机按第 4 节把 `/dev/elemental-install-target` 链到系统盘 WWN；本例只有一块真实盘时，确认 installer 选的是 `/dev/sda`，不要用“第一块盘”默认值。不要对 `sr1`、`loop0` 动手。

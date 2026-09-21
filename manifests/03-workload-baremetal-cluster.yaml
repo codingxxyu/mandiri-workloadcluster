@@ -8,9 +8,9 @@ metadata:
   name: olvm-workloadcluster
   namespace: cpaas-system
 spec:
-  networkType: kube-ovn
-  networkDevice: eth0
   controlPlaneLoadBalancer:
     type: External
     host: 10.243.166.12
     port: 6443
+  networkType: kube-ovn
+  networkDevice: eth0

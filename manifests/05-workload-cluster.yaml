@@ -12,7 +12,7 @@ metadata:
     cpaas.io/alb-address-type: ClusterAddress
     cpaas.io/kube-ovn-join-cidr: 100.15.0.0/16
     cpaas.io/kube-ovn-version: v4.3.11
-    cpaas.io/registry-address: <existing-global-registry>:11443
+    cpaas.io/registry-address: 10.243.166.5:11443
 spec:
   clusterNetwork:
     pods:

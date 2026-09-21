@@ -1,5 +1,6 @@
 # Apply only after the three physical masters have booted the SeedImage,
 # left the Live ISO, registered as MachineInventory, and are Ready=True.
+# Inventory order and hostnames match the site Control Plane pool.
 # machineInventories[].networkDevice is optional. It overrides
 # BaremetalCluster.spec.networkDevice for that host only. Leave it as
 # eth0 when the CNI NIC matches the cluster default.
@@ -11,9 +12,12 @@ metadata:
 spec:
   clusterName: olvm-workloadcluster
   machineInventories:
+    - name: olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62
+      hostname: olvm-workloadcluster-cpw01
+      networkDevice: eth0
     - name: olvm-workloadcluster-2859b4f7-a97f-4f3b-a5c3-aad410030137
+      hostname: olvm-workloadcluster-cpw02
       networkDevice: eth0
     - name: olvm-workloadcluster-d6bbbcff-a3c9-4aee-8e2b-e78eca996b12
-      networkDevice: eth0
-    - name: olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62
+      hostname: olvm-workloadcluster-cpw03
       networkDevice: eth0

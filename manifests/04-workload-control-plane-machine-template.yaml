@@ -1,7 +1,8 @@
+# Site name is olvm-workloadcluster-control-plane-template.
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: BaremetalMachineTemplate
 metadata:
-  name: olvm-workloadcluster-control-plane-machine-template
+  name: olvm-workloadcluster-control-plane-template
   namespace: cpaas-system
 spec:
   template:
