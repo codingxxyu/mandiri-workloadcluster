@@ -4,6 +4,8 @@ kind: MachineRegistration
 metadata:
   name: olvm-workloadcluster-worker-registration
   namespace: cpaas-system
+  labels:
+    app.kubernetes.io/part-of: cluster-api-provider-baremetal
 spec:
   machineName: "olvm-workloadcluster-worker-${System Information/UUID}"
   machineInventoryLabels:
@@ -32,6 +34,8 @@ kind: SeedImage
 metadata:
   name: olvm-workloadcluster-worker-registration-iso
   namespace: cpaas-system
+  labels:
+    app.kubernetes.io/part-of: cluster-api-provider-baremetal
 spec:
   type: iso
   baseImage: 10.243.166.5:11443/tkestack/baremetal-base-image-iso:v4.3.2-1-1.34.5-3
