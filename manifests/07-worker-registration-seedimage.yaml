@@ -11,8 +11,6 @@ spec:
   machineInventoryLabels:
     app.kubernetes.io/part-of: cluster-api-provider-baremetal
     pool.baremetal.alauda.io/eligible: "true"
-    cpaas.io/cluster-name: olvm-workloadcluster
-    cpaas.io/node-role: worker
     elemental.cattle.io/serial-number: "${System Information/Serial Number}"
   machineInventoryAnnotations:
     elemental.cattle.io/machine-uuid: "${System Information/UUID}"

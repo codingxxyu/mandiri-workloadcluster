@@ -694,7 +694,7 @@ chronyc tracking
 ```bash
 kubectl -n cpaas-system get machineinventories.elemental.cattle.io -o wide
 kubectl -n cpaas-system get machineinventories.elemental.cattle.io \
-  -l cpaas.io/node-role=worker -o wide
+  -l app.kubernetes.io/part-of=cluster-api-provider-baremetal -o wide
 ```
 
 Worker Inventory 名字由 Elemental 按 `olvm-workloadcluster-worker-${UUID}` 生成，现场才会出现。把这一台真实名字记下来。
