@@ -601,7 +601,7 @@ kubectl -n cpaas-system get seedimage olvm-workloadcluster-worker-registration-i
 7. 把启动顺序改回 disk-first。
 8. 确认下一次启动进入已安装 OS，不是再次进入 Live ISO。
 
-VLAN 必须在安装前配完。Live ISO 上 NetworkManager 自动 DHCP 不会写进 `observedNetwork.connections`；安装后只回放注册时拍到的 keyfile。Master 已经按 `eth0` 跑了，不要改 `BaremetalCluster.spec.networkDevice`。
+VLAN 必须在安装前配完。Live ISO 上 NetworkManager 自动 DHCP 不会写进 `observedNetwork.connections`；安装后只回放注册时拍到的 keyfile。Master 已经按 `eth0` 跑了，不要改 `BaremetalCluster.spec.networkDevice`。现场跑通的 VLAN 参考命令见第 14.2 节。
 
 #### 默认写法：VLAN 329 在 eth0 上（不是 bond）
 
@@ -1057,3 +1057,44 @@ blkid
 清完后 `sda` 应该没有分区，`blkid` 里也不该再看到 `EFI` / `ROOT` / `COS_*`。
 
 然后再走安装。安装目标明确指定这块系统盘：多盘主机按第 4 节把 `/dev/elemental-install-target` 链到系统盘 WWN；本例只有一块真实盘时，确认 installer 选的是 `/dev/sda`，不要用“第一块盘”默认值。不要对 `sr1`、`loop0` 动手。
+
+### 14.2 网卡需要带 VLAN 信息
+
+**现象：** Worker 业务网不是裸 `eth0`，必须走 VLAN。Live ISO 上若把 IP 配在 `eth0`，或没建 VLAN 接口，注册后 `observedNetwork` 对不上，Pool 的 `networkDevice: eth0.329` 也无法作为 CNI 网卡。
+
+**适用：** 在 **Live ISO 控制台**、Elemental 安装开始前。Master 已经按 `eth0` 跑了，不要改 `BaremetalCluster.spec.networkDevice`。VLAN 写在主机 NM 上，不写进 Registration YAML。
+
+**可以做：** 只在物理口 `eth0` 上建 VLAN 329，接口名 `eth0.329`，静态 IPv4 配在这个 VLAN 口上。下面是现场跑通的参考配置；地址、DNS 按这台机器改，不要原样抄到另一台。
+
+**不要做：**
+
+- 不要把 IP 配在 `eth0` 上。
+- 不要填 connection 名 `vlan329` 到 Pool 的 `networkDevice`；填接口名 `eth0.329`。
+- 不要用 VIP `10.243.166.12`。
+- 交换机没有把 eth0/eth1 绑成 bond 时，不要走 `bond0.329`。bond 写法仍见第 11.3 节。
+- 不要对 `sr1`、`loop0` 动手。
+
+**操作：**
+
+**[Worker BMC Console]**，Live ISO 起来后立刻做。`eth0` 不能是 bond slave。
+
+```bash
+# 只在 eth0 上做 VLAN 329
+sudo nmcli con add type vlan ifname eth0.329 con-name vlan329 \
+  dev eth0 id 329
+
+sudo nmcli con mod vlan329 \
+  ipv4.method manual \
+  ipv4.addresses 10.243.166.31/26 \
+  ipv4.gateway 10.243.166.1 \
+  ipv4.dns 8.8.8.8 \
+  ipv6.method ignore
+
+sudo nmcli con up vlan329
+ping -c 3 10.243.166.1
+ip -br addr show eth0.329
+```
+
+成功标准：`eth0.329` 有这台机器的地址；能 ping 通网关 `10.243.166.1`。然后再让主机注册。安装触发重启后弹出 ISO，启动顺序改回 disk-first。
+
+Pool 写入时 `networkDevice` 填 `eth0.329`。先看 Inventory 的 `observedNetwork.interfaces` / `connections`，接口名不是 `eth0.329` 时只改那一台。
