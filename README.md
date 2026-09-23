@@ -34,7 +34,9 @@ olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62
 
 ```text
 部署阶段只规划系统盘。
-多盘主机用 /dev/elemental-install-target 固定系统盘 WWN。
+ISO / MachineRegistration 用通用路径 /dev/elemental-install-target，
+不把某台机器的 /dev/sda 写进 SeedImage。
+每台主机 Live ISO 启动后，再把本机真实盘符软链接到这个路径。
 额外数据盘不在 MachineInventory.spec.storage 里提前声明。
 集群 Ready 后，再登录节点手工挂载数据盘。
 后续 OS/集群升级不依赖这块数据盘规划。
@@ -142,7 +144,7 @@ printf 'Workload API VIP: 10.243.166.12\n'
 | `manifests/08-worker-pool.yaml` | `spec.machineInventories[].hostname` | 默认 `olvm-workloadcluster-worker01` |
 | `manifests/08-worker-pool.yaml` | `spec.machineInventories[].networkDevice` | Worker 默认 `eth0.329`（VLAN 329 在 eth0 上，不是 bond）。现场 `observedNetwork` 名字不同时只改这一台 |
 | `manifests/10-worker-kubeadm-config-template.yaml` | `sshAuthorizedKeys` | 与 KCP 相同的 `${SSH_PUBLIC_KEY}` |
-| 多盘主机系统盘 | Live ISO 上的 `/dev/elemental-install-target` | 该主机系统盘的 `/dev/disk/by-id/wwn-*` |
+| 多盘主机系统盘 | `01` / `07` 的 `install.device` 固定写 `/dev/elemental-install-target` | 不改 YAML。每台 Live ISO 上把本机真实盘符（例 `/dev/sda`）软链接到这个路径，见第 4 节 |
 
 在 Global Master 01 上使用 `vi` 或 `vim` 逐个编辑，例如：
 
@@ -264,11 +266,18 @@ done
 
 官方文档：<https://docs.alauda.cn/immutable-infra/1.0/how-to/configure-fixed-install-disk-bare-metal.html>
 
-研发确认：部署阶段不单独规划额外数据盘。有多块磁盘、大小不同时，只需要用 WWN 把门禁指到系统盘。数据盘等集群起来后，再登录节点手工挂载；后续升级不受影响。
+研发确认：部署阶段不单独规划额外数据盘。有多块磁盘、大小不同时，只把门禁指到系统盘。数据盘等集群起来后，再登录节点手工挂载；后续升级不受影响。
 
-不要把 `MachineRegistration.spec.config.elemental.install.device` 留空，也不要用 `/dev/sda`。空 device 会让 Elemental 自动选盘；`/dev/sda` 在 Live ISO 和已安装系统之间可能互换。
+分两层，不要混：
 
-共享 ISO 使用同一个不存在的路径：
+| 层 | 写在哪 | 写什么 |
+|---|---|---|
+| 通用参数（做 ISO） | `MachineRegistration.spec.config.elemental.install.device` | 永远写 `/dev/elemental-install-target`。Master 的 `01`、Worker 的 `07` 都一样。同一角色共用一张 SeedImage，不把某台机器的 `/dev/sda` 写进 YAML |
+| 节点现场（装这一台） | 该主机 **Live ISO 控制台** | 用 `lsblk` 确认本机系统盘后，把真实盘符软链接到上面那个通用路径。每台机器自己做，盘符可以不同 |
+
+不要把 `install.device` 留空，也不要把 `/dev/sda` 写进 Registration。空 device 会让 Elemental 自动选盘；YAML 里写死 `/dev/sda` 时，Live ISO 和已安装系统之间盘序可能互换，多盘主机还会装错盘。通用路径在 ISO 里故意不存在，安装服务不会自动选盘，必须到节点上建软链接才会开始装。
+
+`01` / `07` 里已经是通用写法，做 ISO 时不用改磁盘字段：
 
 ```yaml
 spec:
@@ -280,21 +289,20 @@ spec:
         reboot: true
 ```
 
-Live ISO 启动后，该路径故意不存在，安装服务不会自动选盘。每台主机在 Live ISO 控制台里，把这个路径链到该主机系统盘的 WWN。
+### 4.1 [每台要装的主机] 在 Live ISO 上把真实盘符链到通用路径
 
-### 4.1 [三台 Master 都执行] 在 Live ISO 上创建安装目标
+Master、Worker 都做。先 `lsblk` 认出本机系统盘，再链。下面示例盘符是 `/dev/sda`，现场不是 `sda` 就换成 `lsblk` 看到的那块（例如 `/dev/nvme0n1`）。不要链到数据盘、不要链到 `sr*` / `loop*`。
 
 清理并确认目标整盘后：
 
 ```bash
-ls -l /dev/disk/by-id/wwn-*
 lsblk -d -e7 -o NAME,PATH,SIZE,MODEL,SERIAL,WWN,HCTL
 
 test ! -e /dev/elemental-install-target
 test ! -L /dev/elemental-install-target
 
 ln -s \
-  /dev/disk/by-id/wwn-把这里换成该主机系统盘的实际WWN \
+  /dev/sda \
   /dev/elemental-install-target
 
 readlink -f /dev/elemental-install-target
@@ -303,9 +311,9 @@ lsblk -d -o NAME,PATH,SIZE,MODEL,SERIAL,WWN,HCTL \
   "$(readlink -f /dev/elemental-install-target)"
 ```
 
-确认输出的是系统盘，不是数据盘。这个符号链接只存在于当前 Live ISO 会话，重启后会消失；已安装系统正常启动不需要它。
+确认输出的是系统盘，不是数据盘。这个符号链接只存在于当前 Live ISO 会话，重启后会消失；已安装系统正常启动不需要它。多盘且 `sda`/`sdb` 可能对调时，把 `/dev/sda` 换成该盘的 `/dev/disk/by-id/wwn-*` 再 `ln -s`，YAML 里的通用路径不用改。
 
-当前三台 Master 如果已经完成安装并离开 Live ISO，不要再回 Live ISO 重建这个链接。本节只用于复查或重装。
+当前三台 Master 如果已经完成安装并离开 Live ISO，不要再回 Live ISO 重建这个链接。本节只用于新装、复查或重装。
 
 ## 5. 数据盘放到集群 Ready 之后
 
@@ -313,7 +321,7 @@ lsblk -d -o NAME,PATH,SIZE,MODEL,SERIAL,WWN,HCTL \
 
 原因：
 
-- 系统盘由 `/dev/elemental-install-target` 固定即可。
+- 系统盘：ISO 用通用路径 `/dev/elemental-install-target`，节点上再软链接真实盘符。
 - 额外数据盘可以等节点加入集群后再在节点上挂载。
 - 研发确认这种后挂方式不影响后续升级。
 
@@ -586,7 +594,7 @@ kubectl -n cpaas-system describe seedimage olvm-workloadcluster-worker-registrat
 kubectl -n cpaas-system get seedimage olvm-workloadcluster-worker-registration-iso -o yaml
 ```
 
-把生成的 Worker ISO 挂到这台 Worker 物理机的虚拟光驱。`install.device` 已经是 `/dev/elemental-install-target`。多盘主机按第 4 节在 Live ISO 上把该路径链到系统盘 WWN。本项目每个集群默认 1 台 Worker；要加第二台时再重复本节并提高 `11` 的 `replicas`。
+把生成的 Worker ISO 挂到这台 Worker 物理机的虚拟光驱。`07` 里 `install.device` 已经是通用路径 `/dev/elemental-install-target`，做 ISO 时不用改。这台机器 Live ISO 起来后，按第 4.1 节把本机真实盘符软链接过去。本项目每个集群默认 1 台 Worker；要加第二台时再重复本节并提高 `11` 的 `replicas`。
 
 ### 11.3 [BMC + Worker] 从 Worker ISO 安装
 
@@ -594,7 +602,7 @@ kubectl -n cpaas-system get seedimage olvm-workloadcluster-worker-registration-i
 
 1. BMC 挂上 Worker SeedImage ISO。
 2. 本次启动从虚拟光驱进入 Live ISO。
-3. 多盘主机按第 4.1 节创建 `/dev/elemental-install-target`，确认指向系统盘。
+3. 按第 4.1 节把本机真实盘符（例 `/dev/sda`）软链接到 `/dev/elemental-install-target`，确认指向系统盘。
 4. **先配 VLAN 329，再让主机注册。** 默认不是 bond：IP 配在 `eth0.329` 上，不要配在 `eth0` 上。VLAN 写在 Live ISO 控制台，不写进 Registration YAML。
 5. 等 Elemental 安装并自动重启。
 6. 安装触发重启后，立即弹出/卸载 ISO。
@@ -847,7 +855,7 @@ systemctl is-active containerd
 - 主机仍从 SeedImage/ISO 启动，BMC 未弹出虚拟介质；
 - `/` 仍是 Live ISO，或看不到 `COS_STATE` 等已安装系统布局；
 - 任一 MachineInventory 不是 `Ready=True`，或看不到正常磁盘布局；
-- 多盘重装时 `/dev/elemental-install-target` 未明确指向系统盘；
+- 多盘重装时没在 Live ISO 上把真实盘符软链接到 `/dev/elemental-install-target`；
 - server dry-run 失败；
 - Control Plane Pool available 小于 3，或 Worker Pool available 小于 1；
 - Registry、Image Catalog、LB、CIDR 或 SSH 公钥未确认；
@@ -1027,7 +1035,7 @@ done
 
 - 不要对 `sr1`、`loop0` 做 wipe/format。那是 ISO 和 Live 根，清了 installer 会挂。
 - 不要靠“第一块盘”这种默认值。安装目标必须明确指定要装的那块盘。
-- `MachineRegistration` 里的 `install.device` 本项目仍用 `/dev/elemental-install-target`。这里的 `/dev/sda` 只是 Live ISO 上 `lsblk` 确认后的真实盘名，用来清旧分区。
+- `MachineRegistration` 里的 `install.device` 永远是通用路径 `/dev/elemental-install-target`，不要改成 `/dev/sda`。这里的 `/dev/sda` 只是这台 Live ISO 上 `lsblk` 确认后的真实盘名，用来清旧分区，以及第 4.1 节软链接的源。
 
 **操作：**
 
@@ -1056,7 +1064,7 @@ blkid
 
 清完后 `sda` 应该没有分区，`blkid` 里也不该再看到 `EFI` / `ROOT` / `COS_*`。
 
-然后再走安装。安装目标明确指定这块系统盘：多盘主机按第 4 节把 `/dev/elemental-install-target` 链到系统盘 WWN；本例只有一块真实盘时，确认 installer 选的是 `/dev/sda`，不要用“第一块盘”默认值。不要对 `sr1`、`loop0` 动手。
+然后再走安装。按第 4.1 节把本机真实盘符链到 `/dev/elemental-install-target`（本例是 `/dev/sda`）。不要用“第一块盘”默认值，不要对 `sr1`、`loop0` 动手。
 
 ### 14.2 网卡需要带 VLAN 信息
 

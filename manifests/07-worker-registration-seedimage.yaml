@@ -17,6 +17,9 @@ spec:
   config:
     elemental:
       install:
+        # Generic path baked into the ISO. Do not put a host disk
+        # such as /dev/sda here. On each Live ISO, symlink the real
+        # OS disk to this path (see README section 4).
         device: /dev/elemental-install-target
         eject-cd: true
         reboot: true

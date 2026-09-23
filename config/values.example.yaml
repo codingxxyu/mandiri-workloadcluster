@@ -40,6 +40,9 @@ control_plane:
     - name: olvm-workloadcluster-d6bbbcff-a3c9-4aee-8e2b-e78eca996b12
       hostname: olvm-workloadcluster-cpw03
       network_device: eth0
+  # Generic path in MachineRegistration / SeedImage. Do not put
+  # a host disk such as /dev/sda here. On each Live ISO, symlink
+  # the real OS disk to this path (README section 4).
   install_device: /dev/elemental-install-target
   cos_state_size_mib: 20480
   # Extra disks are mounted on the node after the cluster is Ready.
