@@ -45,8 +45,6 @@ control_plane:
   # the real OS disk to this path (control-plane/README.md / worker/README.md).
   install_device: /dev/elemental-install-target
   cos_state_size_mib: 20480
-  # Extra disks are mounted on the node after the cluster is Ready.
-  # Do not declare them in MachineInventory.spec.storage during deploy.
 workers:
   replicas: 1
   registration: olvm-workloadcluster-worker-registration

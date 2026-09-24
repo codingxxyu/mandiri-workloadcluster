@@ -277,6 +277,14 @@ kubectl --kubeconfig workload-kubeconfig get nodes -o wide
 
 期待：BaremetalCluster Ready；三台 Inventory 已分配；KCP replicas=3；三台 Master Node Ready。此时 Node 列表只有控制面是正常的。
 
-数据盘等 Node Ready 后再登录节点手工挂，不写进 Inventory，也不是本目录的前置条件。参考 `control-plane/storage/`。
-
 控制面 Ready 后，再按 [`../worker/README.md`](../worker/README.md) 加 Worker。
+
+---
+
+## 12. 额外目录需要单独挂载时
+
+本项目不包含存储 YAML。系统盘只走 ISO 通用路径 `/dev/elemental-install-target`。
+
+如果业务还要把一块独立磁盘挂到额外目录（例如 `/data`，或根下其它路径），不要在本仓库里加存储文件，按官方文档在对应 `MachineInventory` 上配置：
+
+<https://docs.alauda.cn/immutable-infra/1.0/how-to/manage-bare-metal-storage.html>

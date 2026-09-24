@@ -198,4 +198,10 @@ kubectl --kubeconfig workload-kubeconfig get nodes -o wide
 
 期待：1 台 Worker Node Ready，带 `kube-ovn/role=worker`。
 
-数据盘等 Node Ready 后再登录节点手工挂。
+---
+
+## 8. 额外目录需要单独挂载时
+
+本项目不包含存储 YAML。如果业务还要把一块独立磁盘挂到额外目录（例如 `/data`，或根下其它路径），按官方文档在对应 `MachineInventory` 上配置：
+
+<https://docs.alauda.cn/immutable-infra/1.0/how-to/manage-bare-metal-storage.html>
