@@ -17,9 +17,10 @@ spec:
   config:
     elemental:
       install:
-        # Generic path baked into the ISO. Do not put a host disk
-        # such as /dev/sda here. On each Live ISO, symlink the real
-        # OS disk to this path (see worker/README.md).
+        # Recommended: keep this generic path in the ISO. Do not bake
+        # a host disk such as /dev/sda into SeedImage. On each Live ISO,
+        # symlink the real OS disk to this path, then after install set
+        # BMC boot order to disk-first and eject the ISO (see README).
         device: /dev/elemental-install-target
         eject-cd: true
         reboot: true
