@@ -1,20 +1,13 @@
-# Already applied on site for the three Masters. Do not re-apply
-# unless Registration/SeedImage must be rebuilt. Worker uses 07,
-# not this pair.
-# Site names: olvm-workloadcluster-registration /
-# olvm-workloadcluster-registration-iso.
+# Prepare now; apply when Worker physical servers are ready.
 apiVersion: elemental.cattle.io/v1beta1
 kind: MachineRegistration
 metadata:
-  name: olvm-workloadcluster-registration
+  name: olvm-workloadcluster-worker-registration
   namespace: cpaas-system
   labels:
     app.kubernetes.io/part-of: cluster-api-provider-baremetal
 spec:
-  # ${...} placeholders are expanded by elemental-register from SMBIOS data.
-  # System UUID is preferred over Serial Number because it is more reliable
-  # across virtualised test environments.
-  machineName: "olvm-workloadcluster-${System Information/UUID}"
+  machineName: "olvm-workloadcluster-worker-${System Information/UUID}"
   machineInventoryLabels:
     app.kubernetes.io/part-of: cluster-api-provider-baremetal
     pool.baremetal.alauda.io/eligible: "true"
@@ -26,7 +19,7 @@ spec:
       install:
         # Generic path baked into the ISO. Do not put a host disk
         # such as /dev/sda here. On each Live ISO, symlink the real
-        # OS disk to this path (see README section 4).
+        # OS disk to this path (see worker/README.md).
         device: /dev/elemental-install-target
         eject-cd: true
         reboot: true
@@ -34,30 +27,27 @@ spec:
           type: btrfs
           maxSnaps: 4
       registration:
-        # false only when the host has a real hardware TPM (/dev/tpm0). Set true
-        # (with emulated-tpm-seed: -1) on any host without one, including physical
-        # servers that ship without a TPM module.
         emulate-tpm: true
         emulated-tpm-seed: -1
 ---
 apiVersion: elemental.cattle.io/v1beta1
 kind: SeedImage
 metadata:
-  name: olvm-workloadcluster-registration-iso
+  name: olvm-workloadcluster-worker-registration-iso
   namespace: cpaas-system
   labels:
     app.kubernetes.io/part-of: cluster-api-provider-baremetal
 spec:
   type: iso
   baseImage: 10.243.166.5:11443/tkestack/baremetal-base-image-iso:v4.3.2-1-1.34.5-3
-  registrationRef:
-    apiVersion: elemental.cattle.io/v1beta1
-    kind: MachineRegistration
-    name: olvm-workloadcluster-registration
-    namespace: cpaas-system
   targetPlatform: linux/amd64
   size: 20Gi
   cleanupAfterMinutes: 120
+  registrationRef:
+    apiVersion: elemental.cattle.io/v1beta1
+    kind: MachineRegistration
+    name: olvm-workloadcluster-worker-registration
+    namespace: cpaas-system
   cloud-config:
     stages:
       boot:

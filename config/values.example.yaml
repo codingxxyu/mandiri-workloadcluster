@@ -42,7 +42,7 @@ control_plane:
       network_device: eth0
   # Generic path in MachineRegistration / SeedImage. Do not put
   # a host disk such as /dev/sda here. On each Live ISO, symlink
-  # the real OS disk to this path (README section 4).
+  # the real OS disk to this path (control-plane/README.md / worker/README.md).
   install_device: /dev/elemental-install-target
   cos_state_size_mib: 20480
   # Extra disks are mounted on the node after the cluster is Ready.
