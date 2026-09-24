@@ -205,3 +205,96 @@ kubectl --kubeconfig workload-kubeconfig get nodes -o wide
 本项目不包含存储 YAML。如果业务还要把一块独立磁盘挂到额外目录（例如 `/data`，或根下其它路径），按官方文档在对应 `MachineInventory` 上配置：
 
 <https://docs.alauda.cn/immutable-infra/1.0/how-to/manage-bare-metal-storage.html>
+
+---
+
+## 9. 常见问题
+
+### 9.1 默认网卡 / 默认 IP 配不上，网卡要带 VLAN
+
+**现象：** 客户给的不是裸 `eth0` 和普通静态 IP。Live ISO 上若把 IP 配在 `eth0`，或没建 VLAN 接口，注册后 `observedNetwork` 对不上，Pool 的 `networkDevice: eth0.329` 也无法作为 CNI 网卡。
+
+**适用：** **[Worker BMC Console]**，Live ISO 起来后、Elemental 安装开始前。Master 已经按 `eth0` 跑了，不要改 `BaremetalCluster.spec.networkDevice`。VLAN 写在主机 NetworkManager 上，不写进 Registration YAML。
+
+**可以做：** 只在物理口 `eth0` 上建 VLAN 329，接口名 `eth0.329`，静态 IPv4 配在这个 VLAN 口上。下面是现场跑通的参考；地址、DNS 按这台机器改，不要原样抄到另一台。
+
+**不要做：**
+
+- 不要把 IP 配在 `eth0` 上。
+- 不要把 connection 名 `vlan329` 填进 Pool 的 `networkDevice`；填接口名 `eth0.329`。
+- 不要用 VIP `10.243.166.12`。
+- 交换机没有把 eth0/eth1 绑成一组时，不要走 `bond0.329`。
+- 不要对 `sr*`、`loop*` 动手。
+
+```bash
+# 如果上次误建了 bond，先拆掉，再配单网卡 VLAN
+sudo nmcli con down vlan329 2>/dev/null || true
+sudo nmcli con down bond0 2>/dev/null || true
+sudo nmcli con delete vlan329 bond0 bond0-port1 bond0-port2 2>/dev/null || true
+
+# 只在 eth0 上做 VLAN 329；IP 必须在 eth0.329，不是 eth0
+sudo nmcli con add type vlan ifname eth0.329 con-name vlan329 \
+  dev eth0 id 329
+
+sudo nmcli con mod vlan329 \
+  ipv4.method manual \
+  ipv4.addresses 10.243.166.31/26 \
+  ipv4.gateway 10.243.166.1 \
+  ipv4.dns 8.8.8.8 \
+  ipv6.method ignore
+
+sudo nmcli con up vlan329
+ping -c 3 10.243.166.1
+ip -br addr show eth0.329
+ls /etc/NetworkManager/system-connections/
+nmcli -f NAME,UUID,TYPE,DEVICE,FILENAME connection show
+```
+
+成功标准：`eth0.329` 有这台机器的地址；能 ping 通网关 `10.243.166.1`；`FILENAME` 指向磁盘上的 `*.nmconnection`，不能只在 `/run/NetworkManager/system-connections/`。然后再让主机注册。安装触发重启后弹出 ISO，启动顺序改回 disk-first。
+
+Pool 写入时 `networkDevice` 填 `eth0.329`。先看 Inventory 的 `observedNetwork.interfaces` / `connections`，接口名不是 `eth0.329` 时只改那一台。
+
+第 2 步默认地址是节点表上的 `10.243.166.6/26`、DNS `10.243.132.38`。上面这组 `10.243.166.31/26`、DNS `8.8.8.8` 是现场另一台跑通时的值，只作参考。
+
+单口 `eth0` 交换机不放行、两口已被绑成一组时，改用 bond + VLAN（现场常见 **active-backup，不是 LACP**）。IP 仍配在 VLAN 上，不要配在 `eth0` / `bond0`：
+
+```bash
+sudo nmcli con add type bond ifname bond0 con-name bond0 \
+  mode active-backup miimon 100
+sudo nmcli con add type ethernet ifname eth0 con-name bond0-port1 master bond0
+sudo nmcli con add type ethernet ifname eth1 con-name bond0-port2 master bond0
+sudo nmcli con add type vlan ifname bond0.329 con-name vlan329 \
+  dev bond0 id 329
+sudo nmcli con mod vlan329 \
+  ipv4.method manual \
+  ipv4.addresses 10.243.166.6/26 \
+  ipv4.gateway 10.243.166.1 \
+  ipv4.dns 10.243.132.38 \
+  ipv6.method ignore
+sudo nmcli con up bond0
+sudo nmcli con up vlan329
+ping -c 3 10.243.166.1
+```
+
+这时 `02` 里这一台改成 `networkDevice: bond0.329`。不要写 `eth0`、`eth1` 或 `bond0`：前两个是 slave，会报 `NetworkDeviceIsSlave`；`bond0` 没有节点地址。Master 的 `BaremetalCluster` / 控制面 Pool 仍然是 `eth0`。
+
+### 9.2 物理机硬盘上已有旧操作系统
+
+**现象：** 硬盘上已经有旧系统（分区、`EFI` / `ROOT` / `COS_*` 标签还在）。Live ISO 里 Elemental 选盘失败、装到错误设备，或旧分区标签干扰重装。
+
+**适用：** Live ISO 控制台，还没有开始 Elemental 安装。本例真实盘是 `sda`。
+
+**不要做：** 不要对 `sr*`、`loop*` 做 wipe/format。`MachineRegistration` 里的 `install.device` 永远是 `/dev/elemental-install-target`，不要改成 `/dev/sda`。这里的 `/dev/sda` 只是这台 Live ISO 上 `lsblk` 确认后的真实盘名。
+
+```bash
+lsblk
+mount | grep sda || true
+umount /dev/sda3 /dev/sda2 /dev/sda1 2>/dev/null || true
+wipefs -a /dev/sda
+sgdisk -Z /dev/sda
+partprobe /dev/sda
+lsblk
+blkid
+```
+
+清完后 `sda` 应该没有分区，`blkid` 里也不该再看到 `EFI` / `ROOT` / `COS_*`。然后再按第 2 步做软链接。

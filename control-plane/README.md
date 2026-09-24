@@ -288,3 +288,30 @@ kubectl --kubeconfig workload-kubeconfig get nodes -o wide
 如果业务还要把一块独立磁盘挂到额外目录（例如 `/data`，或根下其它路径），不要在本仓库里加存储文件，按官方文档在对应 `MachineInventory` 上配置：
 
 <https://docs.alauda.cn/immutable-infra/1.0/how-to/manage-bare-metal-storage.html>
+
+---
+
+## 13. 常见问题
+
+### 13.1 物理机硬盘上已有旧操作系统
+
+**现象：** 硬盘上已经有旧系统（分区、`EFI` / `ROOT` / `COS_*` 标签还在）。Live ISO 里 Elemental 选盘失败、装到错误设备，或旧分区标签干扰重装。
+
+**适用：** Live ISO 控制台，还没有开始 Elemental 安装。本例真实盘是 `sda`。Master 和 Worker 都可能遇到；Worker 见 [`../worker/README.md`](../worker/README.md) 第 9.2 节。
+
+**不要做：** 不要对 `sr*`、`loop*` 做 wipe/format。`MachineRegistration` 里的 `install.device` 永远是 `/dev/elemental-install-target`，不要改成 `/dev/sda`。这里的 `/dev/sda` 只是这台 Live ISO 上 `lsblk` 确认后的真实盘名。
+
+```bash
+lsblk
+mount | grep sda || true
+umount /dev/sda3 /dev/sda2 /dev/sda1 2>/dev/null || true
+wipefs -a /dev/sda
+sgdisk -Z /dev/sda
+partprobe /dev/sda
+lsblk
+blkid
+```
+
+清完后 `sda` 应该没有分区，`blkid` 里也不该再看到 `EFI` / `ROOT` / `COS_*`。然后再按第 3 步做软链接。
+
+Worker 网卡要带 VLAN、默认 IP 配不上，见 [`../worker/README.md`](../worker/README.md) 第 9.1 节。不要改本目录 `BaremetalCluster` 的 `networkDevice: eth0`。

@@ -26,3 +26,5 @@ namespace:      cpaas-system
 所有命令在 **Global Master 01** 上执行（`kubectl` 已连 Global，不写 kubeconfig 路径），除非步骤标明 BMC / 物理机 / LB。不使用脚本或渲染。YAML 里还有 `<...>` 就不要 apply。
 
 本仓库不包含存储配置。系统盘只走 ISO 通用路径。若要把独立磁盘挂到额外目录（例如 `/data`），按官方文档配置：<https://docs.alauda.cn/immutable-infra/1.0/how-to/manage-bare-metal-storage.html>
+
+常见问题：Worker 默认网卡/IP 配不上、要配 VLAN → [`worker/README.md`](worker/README.md) 第 9 节；硬盘已有旧系统 → [`control-plane/README.md`](control-plane/README.md) 第 13 节。
