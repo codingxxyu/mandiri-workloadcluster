@@ -12,6 +12,9 @@ registry:
   address: 156.3.1.26:11443
   base_image: 156.3.1.26:11443/tkestack/kubeos-rootfs:baremetal
   base_image_iso: 156.3.1.26:11443/tkestack/kubeos-iso:baremetal
+  # ARM Worker only. Do not overwrite the amd64 tags above.
+  base_image_arm64: 156.3.1.26:11443/tkestack/kubeos-rootfs:baremetal-arm64
+  base_image_iso_arm64: 156.3.1.26:11443/tkestack/kubeos-iso:baremetal-arm64
 network:
   api_host: 156.3.1.95
   api_port: 6443
@@ -49,6 +52,8 @@ workers:
   replicas: 1
   registration: bm-cluster-worker-registration
   seedimage: bm-cluster-worker-registration-iso
+  arm64_registration: bm-cluster-worker-arm64-registration
+  arm64_seedimage: bm-cluster-worker-arm64-registration-iso
   template: bm-cluster-worker-template
   # Default Worker host/CNI NIC: VLAN 329 on eth0, not a bond.
   # IP belongs on eth0.329, never on eth0. Mask/gateway/DNS from

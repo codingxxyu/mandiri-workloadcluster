@@ -5,7 +5,7 @@
 | 目录 | 文件 |
 |---|---|
 | [`control-plane/manifests/`](control-plane/manifests/) | 控制面 Registration、Pool、BaremetalCluster、Cluster、KCP |
-| [`worker/manifests/`](worker/manifests/) | Worker Registration、Pool、MachineTemplate、KubeadmConfigTemplate、MachineDeployment |
+| [`worker/manifests/`](worker/manifests/) | Worker Registration、ARM64 Registration、Pool、MachineTemplate、KubeadmConfigTemplate、MachineDeployment |
 
 ```text
 ACP:            v4.4.0
@@ -17,6 +17,8 @@ pause:          3.10
 kube-ovn chart: v4.4.6
 OS image:       156.3.1.26:11443/tkestack/kubeos-rootfs:baremetal
 OS ISO:         156.3.1.26:11443/tkestack/kubeos-iso:baremetal
+OS image ARM:   156.3.1.26:11443/tkestack/kubeos-rootfs:baremetal-arm64
+OS ISO ARM:     156.3.1.26:11443/tkestack/kubeos-iso:baremetal-arm64
 Registry:       156.3.1.26:11443
 API VIP:        156.3.1.95:6443
 namespace:      cpaas-system
@@ -60,6 +62,19 @@ ctr -n default images push --skip-verify -u "admin:<password>" ${REG}/tkestack/k
 ```
 
 推完再做 Image Catalog。
+
+ARM Worker 另下一份 ARM 包，另 import，**不要**打成上面那两个 x86 tag。推完应同时存在四张：
+
+```bash
+ctr -n default images import --no-unpack <os-image-arm64.tar>
+ctr -n default images list | grep kubeos
+ctr -n default images tag <imported-arm-base> ${REG}/tkestack/kubeos-rootfs:baremetal-arm64
+ctr -n default images tag <imported-arm-iso>  ${REG}/tkestack/kubeos-iso:baremetal-arm64
+ctr -n default images push --skip-verify -u "admin:<password>" ${REG}/tkestack/kubeos-rootfs:baremetal-arm64
+ctr -n default images push --skip-verify -u "admin:<password>" ${REG}/tkestack/kubeos-iso:baremetal-arm64
+```
+
+`elemental-image-catalog` 的 `v1.35.6-acp.1` **继续指向 x86 rootfs**。不要为了 ARM 覆盖这条。ARM 首装走 ARM SeedImage ISO；混架构下 catalog 只有一个 K8s 版本 key，覆盖后 x86 Master 下次 reprovision 会拉 ARM 盘。
 
 ---
 
@@ -365,7 +380,46 @@ kubectl apply -f worker/manifests/01-registration-seedimage.yaml
 kubectl -n cpaas-system describe seedimage bm-cluster-worker-registration-iso
 ```
 
-`SeedImageReady=True` 后再下载 ISO、挂到这台 Worker 的虚拟光驱。
+`SeedImageReady=True` 后再下载 ISO、挂到这台 **x86** Worker 的虚拟光驱。ARM 机器不要挂这张盘。
+
+### Worker 1b. ARM64 Registration / SeedImage
+
+文件：`worker/manifests/01-arm64-registration-seedimage.yaml`
+
+资源名：
+
+```text
+bm-cluster-worker-arm64-registration
+bm-cluster-worker-arm64-registration-iso
+```
+
+确认仓库里已有 ARM 两张图，且 **没有** 覆盖 x86 的 `:baremetal`：
+
+```text
+156.3.1.26:11443/tkestack/kubeos-iso:baremetal-arm64
+156.3.1.26:11443/tkestack/kubeos-rootfs:baremetal-arm64
+```
+
+```yaml
+# SeedImage
+spec:
+  baseImage: 156.3.1.26:11443/tkestack/kubeos-iso:baremetal-arm64
+  targetPlatform: linux/arm64
+```
+
+`targetPlatform` 公开文档只举例 `linux/amd64`。OCI 惯例 ARM 用 `linux/arm64`。operator 若拒，以报错为准，不要改成 `linux/aarch64`。
+
+不要改、不要删现有 x86 Worker / 控制面 SeedImage 来“改成 ARM”。ARM 单独这一份。x86 ISO 已经编完、不再加 x86 Worker 时可以删 x86 **SeedImage**，**不要删**对应的 MachineRegistration。
+
+```bash
+kubectl apply --dry-run=server -f worker/manifests/01-arm64-registration-seedimage.yaml
+kubectl apply -f worker/manifests/01-arm64-registration-seedimage.yaml
+kubectl -n cpaas-system describe seedimage bm-cluster-worker-arm64-registration-iso
+```
+
+`SeedImageReady=True` 后再把 **ARM** ISO 挂到 ARM 机器。后面认盘、BMC disk-first、查 Inventory、填 Worker Pool 的步骤与 x86 Worker 相同，只是挂的是这张 ARM ISO。Inventory 名会是 `bm-cluster-worker-arm64-<UUID>`。
+
+不要把 catalog 的 `v1.35.6-acp.1` 改成 ARM rootfs。
 
 ### Worker 2. [BMC + Live ISO] 指定系统盘、VLAN、设定从磁盘启动
 
