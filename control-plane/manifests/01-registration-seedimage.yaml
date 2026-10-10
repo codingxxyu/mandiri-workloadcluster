@@ -1,12 +1,10 @@
-# Already applied on site for the three Masters. Do not re-apply
-# unless Registration/SeedImage must be rebuilt. Worker uses
-# worker/manifests/01-registration-seedimage.yaml, not this pair.
-# Site names: olvm-workloadcluster-registration /
-# olvm-workloadcluster-registration-iso.
+# Control-plane Registration / SeedImage.
+# Do not re-apply unless Registration/SeedImage must be rebuilt.
+# Worker uses worker/manifests/01-registration-seedimage.yaml, not this pair.
 apiVersion: elemental.cattle.io/v1beta1
 kind: MachineRegistration
 metadata:
-  name: olvm-workloadcluster-registration
+  name: bm-cluster-registration
   namespace: cpaas-system
   labels:
     app.kubernetes.io/part-of: cluster-api-provider-baremetal
@@ -14,7 +12,7 @@ spec:
   # ${...} placeholders are expanded by elemental-register from SMBIOS data.
   # System UUID is preferred over Serial Number because it is more reliable
   # across virtualised test environments.
-  machineName: "olvm-workloadcluster-${System Information/UUID}"
+  machineName: "bm-cluster-${System Information/UUID}"
   machineInventoryLabels:
     app.kubernetes.io/part-of: cluster-api-provider-baremetal
     pool.baremetal.alauda.io/eligible: "true"
@@ -44,7 +42,7 @@ spec:
 apiVersion: elemental.cattle.io/v1beta1
 kind: SeedImage
 metadata:
-  name: olvm-workloadcluster-registration-iso
+  name: bm-cluster-registration-iso
   namespace: cpaas-system
   labels:
     app.kubernetes.io/part-of: cluster-api-provider-baremetal
@@ -54,7 +52,7 @@ spec:
   registrationRef:
     apiVersion: elemental.cattle.io/v1beta1
     kind: MachineRegistration
-    name: olvm-workloadcluster-registration
+    name: bm-cluster-registration
     namespace: cpaas-system
   targetPlatform: linux/amd64
   size: 20Gi

@@ -1,7 +1,7 @@
 # Fill remaining apply-time values after inspecting Worker MachineInventory.
 # Do not commit passwords, kubeconfigs, private keys, or customer secrets.
 namespace: cpaas-system
-cluster_name: olvm-workloadcluster
+cluster_name: bm-cluster
 # Values from the ACP OS support matrix for ACP v4.4.0.
 acp_version: v4.4.0
 kubernetes_version: v1.35.6-acp.1
@@ -27,18 +27,18 @@ network:
   # Change only that host when it uses a bond or a NIC that is not eth0.
 control_plane:
   replicas: 3
-  registration: olvm-workloadcluster-registration
-  seedimage: olvm-workloadcluster-registration-iso
-  template: olvm-workloadcluster-control-plane-template
+  registration: bm-cluster-registration
+  seedimage: bm-cluster-registration-iso
+  template: bm-cluster-control-plane-template
   inventories:
-    - name: olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62
-      hostname: olvm-workloadcluster-cpw01
+    - name: <actual-cp-inventory-1>
+      hostname: bm-cluster-cp01
       network_device: eth0
-    - name: olvm-workloadcluster-2859b4f7-a97f-4f3b-a5c3-aad410030137
-      hostname: olvm-workloadcluster-cpw02
+    - name: <actual-cp-inventory-2>
+      hostname: bm-cluster-cp02
       network_device: eth0
-    - name: olvm-workloadcluster-d6bbbcff-a3c9-4aee-8e2b-e78eca996b12
-      hostname: olvm-workloadcluster-cpw03
+    - name: <actual-cp-inventory-3>
+      hostname: bm-cluster-cp03
       network_device: eth0
   # Recommended generic path in MachineRegistration / SeedImage.
   # Do not put a host disk such as /dev/sda here. On each Live ISO,
@@ -47,9 +47,9 @@ control_plane:
   cos_state_size_mib: 20480
 workers:
   replicas: 1
-  registration: olvm-workloadcluster-worker-registration
-  seedimage: olvm-workloadcluster-worker-registration-iso
-  template: olvm-workloadcluster-worker-template
+  registration: bm-cluster-worker-registration
+  seedimage: bm-cluster-worker-registration-iso
+  template: bm-cluster-worker-template
   # Default Worker host/CNI NIC: VLAN 329 on eth0, not a bond.
   # IP belongs on eth0.329, never on eth0. Mask/gateway/DNS from
   # the customer node sheet. 10.243.166.6 is that node's address;
@@ -62,6 +62,6 @@ workers:
   prefix: 26
   inventories:
     - name: <actual-worker-inventory-1>
-      hostname: olvm-workloadcluster-worker01
+      hostname: bm-cluster-worker01
       network_device: eth0.329
       address: 10.243.166.6/26

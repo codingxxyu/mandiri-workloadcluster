@@ -4,10 +4,10 @@
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: BaremetalMachineTemplate
 metadata:
-  name: olvm-workloadcluster-worker-template
+  name: bm-cluster-worker-template
   namespace: cpaas-system
 spec:
   template:
     spec:
       machineInventoryPoolRef:
-        name: olvm-workloadcluster-worker-pool
+        name: bm-cluster-worker-pool

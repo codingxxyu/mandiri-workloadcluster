@@ -1,7 +1,7 @@
 apiVersion: cluster.x-k8s.io/v1beta1
 kind: Cluster
 metadata:
-  name: olvm-workloadcluster
+  name: bm-cluster
   namespace: cpaas-system
   labels:
     cluster-type: ProviderBaremetal
@@ -24,8 +24,8 @@ spec:
   infrastructureRef:
     apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
     kind: BaremetalCluster
-    name: olvm-workloadcluster
+    name: bm-cluster
   controlPlaneRef:
     apiVersion: controlplane.cluster.x-k8s.io/v1beta1
     kind: KubeadmControlPlane
-    name: olvm-workloadcluster-control-plane
+    name: bm-cluster-control-plane

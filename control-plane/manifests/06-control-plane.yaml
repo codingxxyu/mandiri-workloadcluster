@@ -4,7 +4,7 @@
 apiVersion: controlplane.cluster.x-k8s.io/v1beta1
 kind: KubeadmControlPlane
 metadata:
-  name: olvm-workloadcluster-control-plane
+  name: bm-cluster-control-plane
   namespace: cpaas-system
 spec:
   replicas: 3
@@ -19,7 +19,7 @@ spec:
     infrastructureRef:
       apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
       kind: BaremetalMachineTemplate
-      name: olvm-workloadcluster-control-plane-template
+      name: bm-cluster-control-plane-template
   kubeadmConfigSpec:
     users:
       - name: boot

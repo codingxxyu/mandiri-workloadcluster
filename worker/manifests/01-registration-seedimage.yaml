@@ -2,12 +2,12 @@
 apiVersion: elemental.cattle.io/v1beta1
 kind: MachineRegistration
 metadata:
-  name: olvm-workloadcluster-worker-registration
+  name: bm-cluster-worker-registration
   namespace: cpaas-system
   labels:
     app.kubernetes.io/part-of: cluster-api-provider-baremetal
 spec:
-  machineName: "olvm-workloadcluster-worker-${System Information/UUID}"
+  machineName: "bm-cluster-worker-${System Information/UUID}"
   machineInventoryLabels:
     app.kubernetes.io/part-of: cluster-api-provider-baremetal
     pool.baremetal.alauda.io/eligible: "true"
@@ -34,7 +34,7 @@ spec:
 apiVersion: elemental.cattle.io/v1beta1
 kind: SeedImage
 metadata:
-  name: olvm-workloadcluster-worker-registration-iso
+  name: bm-cluster-worker-registration-iso
   namespace: cpaas-system
   labels:
     app.kubernetes.io/part-of: cluster-api-provider-baremetal
@@ -47,7 +47,7 @@ spec:
   registrationRef:
     apiVersion: elemental.cattle.io/v1beta1
     kind: MachineRegistration
-    name: olvm-workloadcluster-worker-registration
+    name: bm-cluster-worker-registration
     namespace: cpaas-system
   cloud-config:
     stages:

@@ -1,6 +1,6 @@
-# Mandiri Bare Metal Workload Cluster
+# Bare Metal Workload Cluster
 
-本项目继续完成已经启动的 `olvm-workloadcluster` 裸金属业务集群。YAML 按角色分目录，步骤都在本文。控制面 Ready 之后再做 Worker。Worker 不要复用控制面那张 ISO。
+裸金属业务集群 YAML 按角色分目录，步骤都在本文。控制面 Ready 之后再做 Worker。Worker 不要复用控制面那张 ISO。资源名以 `bm-cluster` 为前缀，不要用客户项目名。
 
 | 目录 | 文件 |
 |---|---|
@@ -29,10 +29,10 @@ hostname
 kubectl config current-context
 kubectl cluster-info
 export BM_NS=cpaas-system
-export CLUSTER_NAME=olvm-workloadcluster
+export CLUSTER_NAME=bm-cluster
 ```
 
-`hostname` 必须是 `global-master01`。
+确认当前节点是 Global 的 Master 01，`kubectl` 已连 Global。
 
 ---
 
@@ -65,7 +65,7 @@ ctr -n default images push --skip-verify -u "admin:<password>" ${REG}/tkestack/k
 
 ## 控制面
 
-三台 Master 已从 SeedImage 注册。正常续接从第 4 步开始。`01` 只有重建 Registration/ISO 时才再 apply。
+按顺序做。`01` 只有重建 Registration/ISO 时才再 apply。Inventory 名由 Elemental 生成，填进 Pool 之前先查。
 
 ### 1. Image Catalog
 
@@ -99,11 +99,11 @@ kubectl -n cpaas-system get configmap elemental-image-catalog \
 
 文件：`control-plane/manifests/01-registration-seedimage.yaml`
 
-现场已 apply，资源名：
+资源名：
 
 ```text
-olvm-workloadcluster-registration
-olvm-workloadcluster-registration-iso
+bm-cluster-registration
+bm-cluster-registration-iso
 ```
 
 `device` 推荐写成通用路径，做 ISO 时不要改成 `/dev/sda`：
@@ -125,7 +125,7 @@ spec:
 ```bash
 kubectl apply --dry-run=server -f control-plane/manifests/01-registration-seedimage.yaml
 kubectl apply -f control-plane/manifests/01-registration-seedimage.yaml
-kubectl -n cpaas-system describe seedimage olvm-workloadcluster-registration-iso
+kubectl -n cpaas-system describe seedimage bm-cluster-registration-iso
 ```
 
 `SeedImageReady=True` 后再挂 ISO。不要用这张 ISO 装 Worker。
@@ -167,12 +167,12 @@ lsblk -e7 -o NAME,PATH,TYPE,SIZE,MODEL,SERIAL,WWN,FSTYPE,LABEL,MOUNTPOINTS
 kubectl -n cpaas-system get machineinventories.elemental.cattle.io -o wide
 ```
 
-现场三台：
+三台 Master 的 Inventory 名记下来，替换 Pool 里的 `<actual-cp-inventory-*>`：
 
 ```text
-olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62   # cpw01
-olvm-workloadcluster-2859b4f7-a97f-4f3b-a5c3-aad410030137   # cpw02
-olvm-workloadcluster-d6bbbcff-a3c9-4aee-8e2b-e78eca996b12   # cpw03
+<actual-cp-inventory-1>   # bm-cluster-cp01
+<actual-cp-inventory-2>   # bm-cluster-cp02
+<actual-cp-inventory-3>   # bm-cluster-cp03
 ```
 
 每台：`Ready=True`，allocation 为空或 `Available`，owner 为空，已从系统盘启动。
@@ -181,20 +181,20 @@ olvm-workloadcluster-d6bbbcff-a3c9-4aee-8e2b-e78eca996b12   # cpw03
 
 文件：`control-plane/manifests/02-control-plane-pool.yaml`
 
-已按现场填好，一般不用改：
+先把三台真实 Inventory 名填进 YAML，hostname 已按 `bm-cluster-cp01`～`cp03` 写好：
 
 ```yaml
 spec:
-  clusterName: olvm-workloadcluster
+  clusterName: bm-cluster
   machineInventories:
-    - name: olvm-workloadcluster-f785380f-a4d3-4bb6-a6b1-be5c253d7a62
-      hostname: olvm-workloadcluster-cpw01
+    - name: <actual-cp-inventory-1>
+      hostname: bm-cluster-cp01
       networkDevice: eth0          # 某台不是 eth0 时只改那一台
-    - name: olvm-workloadcluster-2859b4f7-a97f-4f3b-a5c3-aad410030137
-      hostname: olvm-workloadcluster-cpw02
+    - name: <actual-cp-inventory-2>
+      hostname: bm-cluster-cp02
       networkDevice: eth0
-    - name: olvm-workloadcluster-d6bbbcff-a3c9-4aee-8e2b-e78eca996b12
-      hostname: olvm-workloadcluster-cpw03
+    - name: <actual-cp-inventory-3>
+      hostname: bm-cluster-cp03
       networkDevice: eth0
 ```
 
@@ -202,7 +202,7 @@ spec:
 grep -nE '<[^>]+>|填写实际' control-plane/manifests/02-control-plane-pool.yaml
 kubectl apply --dry-run=server -f control-plane/manifests/02-control-plane-pool.yaml
 kubectl apply -f control-plane/manifests/02-control-plane-pool.yaml
-kubectl -n cpaas-system get machineinventorypool olvm-workloadcluster-control-plane-pool -o yaml
+kubectl -n cpaas-system get machineinventorypool bm-cluster-control-plane-pool -o yaml
 ```
 
 要求 Pool Ready/MembersValid，available ≥ 3。
@@ -211,7 +211,7 @@ kubectl -n cpaas-system get machineinventorypool olvm-workloadcluster-control-pl
 
 文件：`control-plane/manifests/03-baremetal-cluster.yaml`
 
-已按现场填好：
+确认这几项即可：
 
 ```yaml
 spec:
@@ -234,7 +234,7 @@ kubectl apply -f control-plane/manifests/03-baremetal-cluster.yaml
 
 文件：`control-plane/manifests/04-control-plane-machine-template.yaml`
 
-已指向 `olvm-workloadcluster-control-plane-pool`，不用改。
+已指向 `bm-cluster-control-plane-pool`，不用改。
 
 ```bash
 kubectl apply --dry-run=server -f control-plane/manifests/04-control-plane-machine-template.yaml
@@ -245,11 +245,11 @@ kubectl apply -f control-plane/manifests/04-control-plane-machine-template.yaml
 
 文件：`control-plane/manifests/05-cluster.yaml`
 
-已按现场填好，确认这几项即可：
+确认这几项即可：
 
 ```yaml
 metadata:
-  name: olvm-workloadcluster
+  name: bm-cluster
   labels:
     cluster-type: ProviderBaremetal
   annotations:
@@ -310,7 +310,7 @@ kubectl apply -f control-plane/manifests/06-control-plane.yaml
 ```bash
 kubectl -n cpaas-system get baremetalcluster,cluster,kubeadmcontrolplane,machine,baremetalmachine
 kubectl -n cpaas-system get events --sort-by=.lastTimestamp
-kubectl -n cpaas-system get secret olvm-workloadcluster-kubeconfig \
+kubectl -n cpaas-system get secret bm-cluster-kubeconfig \
   -o jsonpath='{.data.value}' | base64 -d > workload-kubeconfig
 kubectl --kubeconfig workload-kubeconfig get nodes -o wide
 ```
@@ -329,7 +329,7 @@ kubectl --kubeconfig workload-kubeconfig get nodes -o wide
 
 ```bash
 kubectl --kubeconfig workload-kubeconfig get nodes -o wide
-kubectl -n cpaas-system get kubeadmcontrolplane olvm-workloadcluster-control-plane
+kubectl -n cpaas-system get kubeadmcontrolplane bm-cluster-control-plane
 kubectl -n cpaas-system get configmap elemental-image-catalog -o yaml
 ```
 
@@ -362,7 +362,7 @@ spec:
 grep -nE '<[^>]+>|填写实际' worker/manifests/01-registration-seedimage.yaml
 kubectl apply --dry-run=server -f worker/manifests/01-registration-seedimage.yaml
 kubectl apply -f worker/manifests/01-registration-seedimage.yaml
-kubectl -n cpaas-system describe seedimage olvm-workloadcluster-worker-registration-iso
+kubectl -n cpaas-system describe seedimage bm-cluster-worker-registration-iso
 ```
 
 `SeedImageReady=True` 后再下载 ISO、挂到这台 Worker 的虚拟光驱。
@@ -407,7 +407,7 @@ ip -br addr show eth0.329
 kubectl -n cpaas-system get machineinventories.elemental.cattle.io -o wide
 ```
 
-名字由 Elemental 生成，形如 `olvm-workloadcluster-worker-<UUID>`。必须 `Ready=True`、已从系统盘启动、allocation 为空或 `Available`。
+名字由 Elemental 生成，形如 `bm-cluster-worker-<UUID>`。必须 `Ready=True`、已从系统盘启动、allocation 为空或 `Available`。
 
 把真实名字记下来，替换下面的 `<actual-worker-inventory-1>`。
 
@@ -419,10 +419,10 @@ kubectl -n cpaas-system get machineinventories.elemental.cattle.io -o wide
 
 ```yaml
 spec:
-  clusterName: olvm-workloadcluster
+  clusterName: bm-cluster
   machineInventories:
     - name: <actual-worker-inventory-1>     # 换成上一步查到的真实名字
-      hostname: olvm-workloadcluster-worker01
+      hostname: bm-cluster-worker01
       networkDevice: eth0.329               # observedNetwork 不是这个名字时只改这一台
 ```
 
@@ -430,7 +430,7 @@ spec:
 grep -nE '<[^>]+>|填写实际' worker/manifests/02-worker-pool.yaml
 kubectl apply --dry-run=server -f worker/manifests/02-worker-pool.yaml
 kubectl apply -f worker/manifests/02-worker-pool.yaml
-kubectl -n cpaas-system get machineinventorypool olvm-workloadcluster-worker-pool
+kubectl -n cpaas-system get machineinventorypool bm-cluster-worker-pool
 ```
 
 要求 `status.available ≥ 1`。名字还是占位就不要 apply。
@@ -439,7 +439,7 @@ kubectl -n cpaas-system get machineinventorypool olvm-workloadcluster-worker-poo
 
 文件：`worker/manifests/03-worker-machine-template.yaml`
 
-已指向 `olvm-workloadcluster-worker-pool`，不用改。
+已指向 `bm-cluster-worker-pool`，不用改。
 
 ```bash
 kubectl apply --dry-run=server -f worker/manifests/03-worker-machine-template.yaml
@@ -477,7 +477,7 @@ kubectl apply -f worker/manifests/04-worker-kubeadm-config-template.yaml
 
 ```yaml
 spec:
-  clusterName: olvm-workloadcluster
+  clusterName: bm-cluster
   replicas: 1                       # 加第二台时再提高，且 ≤ pool available+allocated
   version: v1.35.6-acp.1
   strategy:
