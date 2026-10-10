@@ -37,23 +37,18 @@ export CLUSTER_NAME=olvm-workloadcluster
 
 ## OS 镜像
 
-仓库里这两张图都要有，缺一不可。研发给的是把两张图打成一个 tar；官方文档那种分镜像导入也可以。哪种能 import 成功用哪种，然后都要 push 到平台仓库。
+平台仓库要有 OS 基础镜像和 ISO 镜像。catalog / reprovision 用 `baremetal-base-image`，SeedImage 用 `baremetal-base-image-iso`。合包 tar 和官方分镜像导入都可以，哪种能 import 成功用哪种，然后都要 push 到当前环境的平台仓库。不要让 SeedImage 或 catalog 去引用构建仓库。
 
-```text
-10.243.166.5:11443/tkestack/baremetal-base-image:v4.3.2-1-1.34.5-3
-10.243.166.5:11443/tkestack/baremetal-base-image-iso:v4.3.2-1-1.34.5-3
-```
-
-合包 import（现场用过；官方分镜像报错时也走这条）：
+合包 import（官方分镜像报错时也走这条）：
 
 ```bash
-ctr -n default images import --no-unpack alaudaos-feat-kubeos-provider-integration.ku.202609281026-0.x86_64.tar
+ctr -n default images import --no-unpack <os-image.tar>
 ctr -n default images list | grep baremetal-base-image
 ```
 
 官方分镜像 / 独立 namespace 的 import 成功就不用改合包。`images list` 里应能看到 `baremetal-base-image` 和 `baremetal-base-image-iso`。
 
-按 list 里的源名字打 tag，再推进仓库（密码不要写进文档，用 `cpaas-system/registry-admin`）：
+按 list 里的源名字打 tag，再推进仓库。`REG` / `TAG` 用文首那组；密码不要写进文档，用 `cpaas-system/registry-admin`：
 
 ```bash
 export REG=10.243.166.5:11443
@@ -64,7 +59,7 @@ ctr -n default images push --skip-verify -u "admin:<password>" ${REG}/tkestack/b
 ctr -n default images push --skip-verify -u "admin:<password>" ${REG}/tkestack/baremetal-base-image-iso:${TAG}
 ```
 
-推完再做 Image Catalog。不要让 SeedImage 或 catalog 去引用构建仓库。
+推完再做 Image Catalog。
 
 ---
 
@@ -78,14 +73,27 @@ ctr -n default images push --skip-verify -u "admin:<password>" ${REG}/tkestack/b
 kubectl -n cpaas-system get configmap elemental-image-catalog -o yaml
 ```
 
-需要有：
+`data` 里需要有当前 Kubernetes 版本，值必须是平台仓库的 **base-image**（不要写 iso）：
 
 ```yaml
 data:
   v1.34.5-3: 10.243.166.5:11443/tkestack/baremetal-base-image:v4.3.2-1-1.34.5-3
 ```
 
-没有就 merge patch，不要覆盖其它 key。
+ConfigMap 还不存在，说明 Bare Metal Provider 没装好，先不要自己造一个，也不要继续 apply Machine。
+
+有 ConfigMap、但没有 `v1.34.5-3`，或值不是上面这条，就 merge patch，不要覆盖其它 key：
+
+```bash
+kubectl -n cpaas-system patch configmap elemental-image-catalog \
+  --type merge \
+  -p '{"data":{"v1.34.5-3":"10.243.166.5:11443/tkestack/baremetal-base-image:v4.3.2-1-1.34.5-3"}}'
+
+kubectl -n cpaas-system get configmap elemental-image-catalog \
+  -o jsonpath='{.data.v1\.34\.5-3}'; echo
+```
+
+补 key 不会自动修好已经 Failed 的 Machine。
 
 ### 2. 控制面 Registration / SeedImage
 
