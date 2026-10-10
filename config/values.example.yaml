@@ -9,9 +9,9 @@ etcd_version: v3.6.13-acp.0
 coredns_image_tag: 1.14.3-v4.4.6
 architecture: linux/amd64
 registry:
-  address: 172.27.244.137:11443
-  base_image: 172.27.244.137:11443/tkestack/kubeos-rootfs:baremetal
-  base_image_iso: 172.27.244.137:11443/tkestack/kubeos-iso:baremetal
+  address: 156.3.1.26:11443
+  base_image: 156.3.1.26:11443/tkestack/kubeos-rootfs:baremetal
+  base_image_iso: 156.3.1.26:11443/tkestack/kubeos-iso:baremetal
 network:
   api_host: 156.3.1.95
   api_port: 6443

@@ -15,9 +15,9 @@ containerd:     2.2.6-3
 coredns:        1.14.3-v4.4.6
 pause:          3.10
 kube-ovn chart: v4.4.6
-OS image:       172.27.244.137:11443/tkestack/kubeos-rootfs:baremetal
-OS ISO:         172.27.244.137:11443/tkestack/kubeos-iso:baremetal
-Registry:       172.27.244.137:11443
+OS image:       156.3.1.26:11443/tkestack/kubeos-rootfs:baremetal
+OS ISO:         156.3.1.26:11443/tkestack/kubeos-iso:baremetal
+Registry:       156.3.1.26:11443
 API VIP:        156.3.1.95:6443
 namespace:      cpaas-system
 ```
@@ -52,7 +52,7 @@ ctr -n default images list | grep kubeos
 按 list 里的源名字打 tag，再推进仓库。`REG` 用文首那组；密码不要写进文档，用 `cpaas-system/registry-admin`：
 
 ```bash
-export REG=172.27.244.137:11443
+export REG=156.3.1.26:11443
 ctr -n default images tag <imported-base> ${REG}/tkestack/kubeos-rootfs:baremetal
 ctr -n default images tag <imported-iso>  ${REG}/tkestack/kubeos-iso:baremetal
 ctr -n default images push --skip-verify -u "admin:<password>" ${REG}/tkestack/kubeos-rootfs:baremetal
@@ -77,7 +77,7 @@ kubectl -n cpaas-system get configmap elemental-image-catalog -o yaml
 
 ```yaml
 data:
-  v1.35.6-acp.1: 172.27.244.137:11443/tkestack/kubeos-rootfs:baremetal
+  v1.35.6-acp.1: 156.3.1.26:11443/tkestack/kubeos-rootfs:baremetal
 ```
 
 ConfigMap 还不存在，说明 Bare Metal Provider 没装好，先不要自己造一个，也不要继续 apply Machine。
@@ -87,7 +87,7 @@ ConfigMap 还不存在，说明 Bare Metal Provider 没装好，先不要自己�
 ```bash
 kubectl -n cpaas-system patch configmap elemental-image-catalog \
   --type merge \
-  -p '{"data":{"v1.35.6-acp.1":"172.27.244.137:11443/tkestack/kubeos-rootfs:baremetal"}}'
+  -p '{"data":{"v1.35.6-acp.1":"156.3.1.26:11443/tkestack/kubeos-rootfs:baremetal"}}'
 
 kubectl -n cpaas-system get configmap elemental-image-catalog \
   -o jsonpath='{.data.v1\.35\.6-acp\.1}'; echo
@@ -255,7 +255,7 @@ metadata:
   annotations:
     cpaas.io/kube-ovn-join-cidr: 100.15.0.0/16
     cpaas.io/kube-ovn-version: v4.4.6
-    cpaas.io/registry-address: 172.27.244.137:11443
+    cpaas.io/registry-address: 156.3.1.26:11443
 spec:
   clusterNetwork:
     pods:
@@ -353,7 +353,7 @@ spec:
 ```yaml
 # SeedImage
 spec:
-  baseImage: 172.27.244.137:11443/tkestack/kubeos-iso:baremetal
+  baseImage: 156.3.1.26:11443/tkestack/kubeos-iso:baremetal
 ```
 
 真实盘符不要写进 YAML。每台 Worker Live ISO 起来后，把本机系统盘软链接到这个路径，安装重启后再把 BMC 启动项改成从磁盘启动。不要改 `${System Information/UUID}` 这类 Elemental 表达式。

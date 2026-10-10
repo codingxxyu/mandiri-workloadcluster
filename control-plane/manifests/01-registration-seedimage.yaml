@@ -48,7 +48,7 @@ metadata:
     app.kubernetes.io/part-of: cluster-api-provider-baremetal
 spec:
   type: iso
-  baseImage: 172.27.244.137:11443/tkestack/kubeos-iso:baremetal
+  baseImage: 156.3.1.26:11443/tkestack/kubeos-iso:baremetal
   registrationRef:
     apiVersion: elemental.cattle.io/v1beta1
     kind: MachineRegistration
