@@ -74,7 +74,7 @@ ctr -n default images push --skip-verify -u "admin:<password>" ${REG}/tkestack/k
 ctr -n default images push --skip-verify -u "admin:<password>" ${REG}/tkestack/kubeos-iso:baremetal-arm64
 ```
 
-`elemental-image-catalog` 的 `v1.35.6-acp.1` **继续指向 x86 rootfs**。不要为了 ARM 覆盖这条。ARM 首装走 ARM SeedImage ISO；混架构下 catalog 只有一个 K8s 版本 key，覆盖后 x86 Master 下次 reprovision 会拉 ARM 盘。
+catalog 不是开机用的。Live ISO / 装盘用 SeedImage 的 `kubeos-iso`；节点被 Pool 分配、写成 Machine 之后，provider 按 `Machine.spec.version` 查 catalog，下 `reprovision` 计划，主机跑 `elemental upgrade` 拉 **rootfs**。ARM Worker 进集群前必须让这条 key 指向 ARM rootfs，但 **不能在三台 Master 进集群之前改**。时序见「Worker 1b」。
 
 ---
 
@@ -417,9 +417,50 @@ kubectl apply -f worker/manifests/01-arm64-registration-seedimage.yaml
 kubectl -n cpaas-system describe seedimage bm-cluster-worker-arm64-registration-iso
 ```
 
-`SeedImageReady=True` 后再把 **ARM** ISO 挂到 ARM 机器。后面认盘、BMC disk-first、查 Inventory、填 Worker Pool 的步骤与 x86 Worker 相同，只是挂的是这张 ARM ISO。Inventory 名会是 `bm-cluster-worker-arm64-<UUID>`。
+`SeedImageReady=True` 后再把 **ARM** ISO 挂到 ARM 机器。认盘、BMC disk-first 与 x86 Worker 相同。Inventory 名会是 `bm-cluster-worker-arm64-<UUID>`。
 
-不要把 catalog 的 `v1.35.6-acp.1` 改成 ARM rootfs。
+挂 ISO、装盘、注册 Inventory **还不碰 catalog**。catalog 是后面进集群才用。
+
+### Worker 1c. 先 Master，再改 catalog，再让 ARM 进集群
+
+catalog 只有一个 key：`v1.35.6-acp.1`。控制面和 Worker 的 `Machine.spec.version` 都查它。公开文档没有按架构分条。
+
+两段生命周期：
+
+| 阶段 | 拉什么 | 谁用 |
+|---|---|---|
+| Live ISO 开机、`elemental install` 写盘 | SeedImage `baseImage`（ISO） | 这台机器自己 |
+| Inventory 进 Pool、CAPI 建 Machine、`kubeadm join` | catalog 里该版本的 **rootfs** | `elemental upgrade` |
+
+所以：ARM 虚拟机启动 **不用** 改 catalog；ARM 要 **加入集群** 时 **要** 改。改早了，Master 的 join/reprovision 会去拉 ARM rootfs。
+
+顺序：
+
+1. catalog 保持 x86：`v1.35.6-acp.1` → `kubeos-rootfs:baremetal`。
+2. 三台 Master 全部 `Ready`（已经用 x86 rootfs 做过一次 upgrade/join）。确认：
+
+```bash
+kubectl --kubeconfig workload-kubeconfig get nodes -o wide
+kubectl -n cpaas-system get kubeadmcontrolplane bm-cluster-control-plane
+kubectl -n cpaas-system get configmap elemental-image-catalog -o yaml
+```
+
+3. **这时才** 把同一条 key 改成 ARM rootfs。merge patch，不要删 ConfigMap：
+
+```bash
+kubectl -n cpaas-system patch configmap elemental-image-catalog \
+  --type merge \
+  -p '{"data":{"v1.35.6-acp.1":"156.3.1.26:11443/tkestack/kubeos-rootfs:baremetal-arm64"}}'
+
+kubectl -n cpaas-system get configmap elemental-image-catalog \
+  -o jsonpath='{.data.v1\.35\.6-acp\.1}'; echo
+```
+
+4. 再把 ARM Inventory 填进 Worker Pool，apply Worker MachineDeployment。这一次 reprovision 才会拉 ARM rootfs。
+
+不要：Master 还没 Ready 就改 catalog；不要给 ARM 另造一个假的 K8s 版本 key；不要在 ARM 已经 Failed/`ImageCatalogMiss` 之后才补 key 指望自愈（要删对应 Machine 让 owner 重建）。
+
+改完 catalog **不会** 让已经 Ready 的 Master 立刻重装。但之后任何一次 Master 的 replace / 升级 / 再 reprovision 都会走 **当前** catalog，也就是 ARM 盘。混架构只能保一段：ARM Worker 进完之后，若还要动 Master，先把 catalog 改回 x86；若还要扩/升级 ARM Worker，再改回 ARM。同一时刻只能服务一种架构。
 
 ### Worker 2. [BMC + Live ISO] 指定系统盘、VLAN、设定从磁盘启动
 
