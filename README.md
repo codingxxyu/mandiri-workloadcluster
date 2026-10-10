@@ -35,6 +35,39 @@ export CLUSTER_NAME=olvm-workloadcluster
 
 ---
 
+## OS 镜像
+
+仓库里这两张图都要有，缺一不可。研发给的是把两张图打成一个 tar；官方文档那种分镜像导入也可以。哪种能 import 成功用哪种，然后都要 push 到平台仓库。
+
+```text
+10.243.166.5:11443/tkestack/baremetal-base-image:v4.3.2-1-1.34.5-3
+10.243.166.5:11443/tkestack/baremetal-base-image-iso:v4.3.2-1-1.34.5-3
+```
+
+合包 import（现场用过；官方分镜像报错时也走这条）：
+
+```bash
+ctr -n default images import --no-unpack alaudaos-feat-kubeos-provider-integration.ku.202609281026-0.x86_64.tar
+ctr -n default images list | grep baremetal-base-image
+```
+
+官方分镜像 / 独立 namespace 的 import 成功就不用改合包。`images list` 里应能看到 `baremetal-base-image` 和 `baremetal-base-image-iso`。
+
+按 list 里的源名字打 tag，再推进仓库（密码不要写进文档，用 `cpaas-system/registry-admin`）：
+
+```bash
+export REG=10.243.166.5:11443
+export TAG=v4.3.2-1-1.34.5-3
+ctr -n default images tag <imported-base> ${REG}/tkestack/baremetal-base-image:${TAG}
+ctr -n default images tag <imported-iso>  ${REG}/tkestack/baremetal-base-image-iso:${TAG}
+ctr -n default images push --skip-verify -u "admin:<password>" ${REG}/tkestack/baremetal-base-image:${TAG}
+ctr -n default images push --skip-verify -u "admin:<password>" ${REG}/tkestack/baremetal-base-image-iso:${TAG}
+```
+
+推完再做 Image Catalog。不要让 SeedImage 或 catalog 去引用构建仓库。
+
+---
+
 ## 控制面
 
 三台 Master 已从 SeedImage 注册。正常续接从第 4 步开始。`01` 只有重建 Registration/ISO 时才再 apply。
