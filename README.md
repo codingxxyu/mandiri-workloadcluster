@@ -8,14 +8,14 @@
 | [`worker/manifests/`](worker/manifests/) | Worker Registration、Pool、MachineTemplate、KubeadmConfigTemplate、MachineDeployment |
 
 ```text
-ACP:            v4.3.2
-Kubernetes:     v1.34.5-3
-etcd:           v3.5.28-260625
-containerd:     2.2.1-5
-coredns:        1.14.2-v4.3.11
+ACP:            v4.4.0
+Kubernetes:     v1.35.6-acp.1
+etcd:           v3.6.13-acp.0
+containerd:     2.2.6-3
+coredns:        1.14.3-v4.4.6
 pause:          3.10
-kube-ovn chart: v4.3.11
-OS image tag:   v4.3.2-1-1.34.5-3
+kube-ovn chart: v4.4.6
+OS image tag:   v4.4.0-1-1.35.6-acp.1   # 按 4.3.2 命名规律推测；import 后以 images list 为准
 Registry:       10.243.166.5:11443
 API VIP:        10.243.166.12:6443
 namespace:      cpaas-system
@@ -52,7 +52,7 @@ ctr -n default images list | grep baremetal-base-image
 
 ```bash
 export REG=10.243.166.5:11443
-export TAG=v4.3.2-1-1.34.5-3
+export TAG=v4.4.0-1-1.35.6-acp.1
 ctr -n default images tag <imported-base> ${REG}/tkestack/baremetal-base-image:${TAG}
 ctr -n default images tag <imported-iso>  ${REG}/tkestack/baremetal-base-image-iso:${TAG}
 ctr -n default images push --skip-verify -u "admin:<password>" ${REG}/tkestack/baremetal-base-image:${TAG}
@@ -77,20 +77,20 @@ kubectl -n cpaas-system get configmap elemental-image-catalog -o yaml
 
 ```yaml
 data:
-  v1.34.5-3: 10.243.166.5:11443/tkestack/baremetal-base-image:v4.3.2-1-1.34.5-3
+  v1.35.6-acp.1: 10.243.166.5:11443/tkestack/baremetal-base-image:v4.4.0-1-1.35.6-acp.1
 ```
 
 ConfigMap 还不存在，说明 Bare Metal Provider 没装好，先不要自己造一个，也不要继续 apply Machine。
 
-有 ConfigMap、但没有 `v1.34.5-3`，或值不是上面这条，就 merge patch，不要覆盖其它 key：
+有 ConfigMap、但没有 `v1.35.6-acp.1`，或值不是上面这条，就 merge patch，不要覆盖其它 key：
 
 ```bash
 kubectl -n cpaas-system patch configmap elemental-image-catalog \
   --type merge \
-  -p '{"data":{"v1.34.5-3":"10.243.166.5:11443/tkestack/baremetal-base-image:v4.3.2-1-1.34.5-3"}}'
+  -p '{"data":{"v1.35.6-acp.1":"10.243.166.5:11443/tkestack/baremetal-base-image:v4.4.0-1-1.35.6-acp.1"}}'
 
 kubectl -n cpaas-system get configmap elemental-image-catalog \
-  -o jsonpath='{.data.v1\.34\.5-3}'; echo
+  -o jsonpath='{.data.v1\.35\.6-acp\.1}'; echo
 ```
 
 补 key 不会自动修好已经 Failed 的 Machine。
@@ -254,7 +254,7 @@ metadata:
     cluster-type: ProviderBaremetal
   annotations:
     cpaas.io/kube-ovn-join-cidr: 100.15.0.0/16
-    cpaas.io/kube-ovn-version: v4.3.11
+    cpaas.io/kube-ovn-version: v4.4.6
     cpaas.io/registry-address: 10.243.166.5:11443
 spec:
   clusterNetwork:
@@ -282,19 +282,19 @@ sshAuthorizedKeys:
   - "<ssh-authorized-keys>"       # 换成真实公钥（Global Master 01 `/root/.ssh/*.pub` 完整一行）
 ```
 
-版本已按 ACP 4.3.2 填好，不要改：
+版本已按 ACP 4.4.0 填好，不要改：
 
 ```yaml
 spec:
   replicas: 3
-  version: v1.34.5-3
+  version: v1.35.6-acp.1
   kubeadmConfigSpec:
     clusterConfiguration:
       dns:
-        imageTag: 1.14.2-v4.3.11
+        imageTag: 1.14.3-v4.4.6
       etcd:
         local:
-          imageTag: v3.5.28-260625
+          imageTag: v3.6.13-acp.0
 ```
 
 ```bash
@@ -333,7 +333,7 @@ kubectl -n cpaas-system get kubeadmcontrolplane olvm-workloadcluster-control-pla
 kubectl -n cpaas-system get configmap elemental-image-catalog -o yaml
 ```
 
-三台 Master Ready；catalog 有 `v1.34.5-3`。
+三台 Master Ready；catalog 有 `v1.35.6-acp.1`。
 
 ### Worker 1. Registration / SeedImage
 
@@ -353,7 +353,7 @@ spec:
 ```yaml
 # SeedImage
 spec:
-  baseImage: 10.243.166.5:11443/tkestack/baremetal-base-image-iso:v4.3.2-1-1.34.5-3
+  baseImage: 10.243.166.5:11443/tkestack/baremetal-base-image-iso:v4.4.0-1-1.35.6-acp.1
 ```
 
 真实盘符不要写进 YAML。每台 Worker Live ISO 起来后，把本机系统盘软链接到这个路径，安装重启后再把 BMC 启动项改成从磁盘启动。不要改 `${System Information/UUID}` 这类 Elemental 表达式。
@@ -479,7 +479,7 @@ kubectl apply -f worker/manifests/04-worker-kubeadm-config-template.yaml
 spec:
   clusterName: olvm-workloadcluster
   replicas: 1                       # 加第二台时再提高，且 ≤ pool available+allocated
-  version: v1.34.5-3
+  version: v1.35.6-acp.1
   strategy:
     rollingUpdate:
       maxSurge: 0                   # 裸金属不能超配

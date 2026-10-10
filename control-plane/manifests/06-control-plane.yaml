@@ -1,6 +1,6 @@
-# Official ACP 4.3.2 Bare Metal KubeadmControlPlane.
+# Official ACP 4.4.0 Bare Metal KubeadmControlPlane.
 # Replace sshAuthorizedKeys with the actual Global Master 01 public key before apply.
-# imageTag values come from the ACP v4.3.2 OS support matrix.
+# imageTag values come from the ACP v4.4.0 OS support matrix.
 apiVersion: controlplane.cluster.x-k8s.io/v1beta1
 kind: KubeadmControlPlane
 metadata:
@@ -8,7 +8,7 @@ metadata:
   namespace: cpaas-system
 spec:
   replicas: 3
-  version: v1.34.5-3
+  version: v1.35.6-acp.1
   rolloutStrategy:
     type: RollingUpdate
     rollingUpdate:
@@ -125,10 +125,10 @@ spec:
     clusterConfiguration:
       imageRepository: cloud.alauda.io/alauda
       dns:
-        imageTag: 1.14.2-v4.3.11
+        imageTag: 1.14.3-v4.4.6
       etcd:
         local:
-          imageTag: v3.5.28-260625
+          imageTag: v3.6.13-acp.0
       apiServer:
         extraArgs:
           audit-log-format: json

@@ -2,23 +2,25 @@
 # Do not commit passwords, kubeconfigs, private keys, or customer secrets.
 namespace: cpaas-system
 cluster_name: olvm-workloadcluster
-# Values from the ACP OS support matrix for ACP v4.3.2.
-acp_version: v4.3.2
-kubernetes_version: v1.34.5-3
-etcd_version: v3.5.28-260625
-coredns_image_tag: 1.14.2-v4.3.11
+# Values from the ACP OS support matrix for ACP v4.4.0.
+# OS image tag follows the 4.3.2 naming pattern; confirm against
+# the imported image before apply.
+acp_version: v4.4.0
+kubernetes_version: v1.35.6-acp.1
+etcd_version: v3.6.13-acp.0
+coredns_image_tag: 1.14.3-v4.4.6
 architecture: linux/amd64
 registry:
   address: 10.243.166.5:11443
-  base_image: 10.243.166.5:11443/tkestack/baremetal-base-image:v4.3.2-1-1.34.5-3
-  base_image_iso: 10.243.166.5:11443/tkestack/baremetal-base-image-iso:v4.3.2-1-1.34.5-3
+  base_image: 10.243.166.5:11443/tkestack/baremetal-base-image:v4.4.0-1-1.35.6-acp.1
+  base_image_iso: 10.243.166.5:11443/tkestack/baremetal-base-image-iso:v4.4.0-1-1.35.6-acp.1
 network:
   api_host: 10.243.166.12
   api_port: 6443
   pods_cidr: 100.13.0.0/16
   services_cidr: 100.14.0.0/16
   kube_ovn_join_cidr: 100.15.0.0/16
-  kube_ovn_version: v4.3.11
+  kube_ovn_version: v4.4.6
   # Cluster-wide CNI NIC. Optional in the API (default eth0). Keep it
   # explicit in BaremetalCluster.spec.networkDevice. Masters already
   # run on eth0; do not change this when Workers use VLAN 329.

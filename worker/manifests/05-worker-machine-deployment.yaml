@@ -1,4 +1,4 @@
-# Official ACP 4.3.2 worker MachineDeployment.
+# Official ACP 4.4.0 worker MachineDeployment.
 # Default is one Worker per cluster. Bare-metal cannot over-provision:
 # keep maxSurge 0 and maxUnavailable 1.
 apiVersion: cluster.x-k8s.io/v1beta1
@@ -25,7 +25,7 @@ spec:
         pool.name: olvm-workloadcluster-workers
     spec:
       clusterName: olvm-workloadcluster
-      version: v1.34.5-3
+      version: v1.35.6-acp.1
       nodeDrainTimeout: 5m
       nodeVolumeDetachTimeout: 5m
       bootstrap:

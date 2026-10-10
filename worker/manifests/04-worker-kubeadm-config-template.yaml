@@ -1,4 +1,4 @@
-# Official ACP 4.3.2 worker KubeadmConfigTemplate, plus the R&D hosts
+# Official ACP 4.4.0 worker KubeadmConfigTemplate, plus the R&D hosts
 # pre-command. Replace sshAuthorizedKeys before apply.
 # Do not pre-fill hostname, provider-id, or criSocket; the provider
 # writes those into the reprovision plan.
