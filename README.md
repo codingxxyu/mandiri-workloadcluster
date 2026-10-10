@@ -15,9 +15,10 @@ containerd:     2.2.6-3
 coredns:        1.14.3-v4.4.6
 pause:          3.10
 kube-ovn chart: v4.4.6
-OS image tag:   v4.4.0-1-1.35.6-acp.1   # 按 4.3.2 命名规律推测；import 后以 images list 为准
-Registry:       10.243.166.5:11443
-API VIP:        10.243.166.12:6443
+OS image:       172.27.244.137:11443/tkestack/kubeos-rootfs:baremetal
+OS ISO:         172.27.244.137:11443/tkestack/kubeos-iso:baremetal
+Registry:       172.27.244.137:11443
+API VIP:        156.3.1.95:6443
 namespace:      cpaas-system
 ```
 
@@ -37,26 +38,25 @@ export CLUSTER_NAME=olvm-workloadcluster
 
 ## OS 镜像
 
-平台仓库要有 OS 基础镜像和 ISO 镜像。catalog / reprovision 用 `baremetal-base-image`，SeedImage 用 `baremetal-base-image-iso`。合包 tar 和官方分镜像导入都可以，哪种能 import 成功用哪种，然后都要 push 到当前环境的平台仓库。不要让 SeedImage 或 catalog 去引用构建仓库。
+平台仓库要有 OS 基础镜像和 ISO 镜像。catalog / reprovision 用 `kubeos-rootfs`，SeedImage 用 `kubeos-iso`。合包 tar 和官方分镜像导入都可以，哪种能 import 成功用哪种，然后都要 push 到当前环境的平台仓库。不要让 SeedImage 或 catalog 去引用构建仓库。
 
 合包 import（官方分镜像报错时也走这条）：
 
 ```bash
 ctr -n default images import --no-unpack <os-image.tar>
-ctr -n default images list | grep baremetal-base-image
+ctr -n default images list | grep kubeos
 ```
 
-官方分镜像 / 独立 namespace 的 import 成功就不用改合包。`images list` 里应能看到 `baremetal-base-image` 和 `baremetal-base-image-iso`。
+官方分镜像 / 独立 namespace 的 import 成功就不用改合包。`images list` 里应能看到 `kubeos-rootfs` 和 `kubeos-iso`。
 
-按 list 里的源名字打 tag，再推进仓库。`REG` / `TAG` 用文首那组；密码不要写进文档，用 `cpaas-system/registry-admin`：
+按 list 里的源名字打 tag，再推进仓库。`REG` 用文首那组；密码不要写进文档，用 `cpaas-system/registry-admin`：
 
 ```bash
-export REG=10.243.166.5:11443
-export TAG=v4.4.0-1-1.35.6-acp.1
-ctr -n default images tag <imported-base> ${REG}/tkestack/baremetal-base-image:${TAG}
-ctr -n default images tag <imported-iso>  ${REG}/tkestack/baremetal-base-image-iso:${TAG}
-ctr -n default images push --skip-verify -u "admin:<password>" ${REG}/tkestack/baremetal-base-image:${TAG}
-ctr -n default images push --skip-verify -u "admin:<password>" ${REG}/tkestack/baremetal-base-image-iso:${TAG}
+export REG=172.27.244.137:11443
+ctr -n default images tag <imported-base> ${REG}/tkestack/kubeos-rootfs:baremetal
+ctr -n default images tag <imported-iso>  ${REG}/tkestack/kubeos-iso:baremetal
+ctr -n default images push --skip-verify -u "admin:<password>" ${REG}/tkestack/kubeos-rootfs:baremetal
+ctr -n default images push --skip-verify -u "admin:<password>" ${REG}/tkestack/kubeos-iso:baremetal
 ```
 
 推完再做 Image Catalog。
@@ -77,7 +77,7 @@ kubectl -n cpaas-system get configmap elemental-image-catalog -o yaml
 
 ```yaml
 data:
-  v1.35.6-acp.1: 10.243.166.5:11443/tkestack/baremetal-base-image:v4.4.0-1-1.35.6-acp.1
+  v1.35.6-acp.1: 172.27.244.137:11443/tkestack/kubeos-rootfs:baremetal
 ```
 
 ConfigMap 还不存在，说明 Bare Metal Provider 没装好，先不要自己造一个，也不要继续 apply Machine。
@@ -87,7 +87,7 @@ ConfigMap 还不存在，说明 Bare Metal Provider 没装好，先不要自己�
 ```bash
 kubectl -n cpaas-system patch configmap elemental-image-catalog \
   --type merge \
-  -p '{"data":{"v1.35.6-acp.1":"10.243.166.5:11443/tkestack/baremetal-base-image:v4.4.0-1-1.35.6-acp.1"}}'
+  -p '{"data":{"v1.35.6-acp.1":"172.27.244.137:11443/tkestack/kubeos-rootfs:baremetal"}}'
 
 kubectl -n cpaas-system get configmap elemental-image-catalog \
   -o jsonpath='{.data.v1\.35\.6-acp\.1}'; echo
@@ -219,11 +219,11 @@ spec:
   networkDevice: eth0             # 集群默认 CNI；Worker VLAN 不要改这里
   controlPlaneLoadBalancer:
     type: External
-    host: 10.243.166.12           # 客户 External LB VIP
+    host: 156.3.1.95              # 客户 External LB VIP
     port: 6443
 ```
 
-[LB 管理端] 核对：`10.243.166.12:6443` TCP passthrough → 三台 Master `:6443`。
+[LB 管理端] 核对：`156.3.1.95:6443` TCP passthrough → 三台 Master `:6443`。
 
 ```bash
 kubectl apply --dry-run=server -f control-plane/manifests/03-baremetal-cluster.yaml
@@ -255,7 +255,7 @@ metadata:
   annotations:
     cpaas.io/kube-ovn-join-cidr: 100.15.0.0/16
     cpaas.io/kube-ovn-version: v4.4.6
-    cpaas.io/registry-address: 10.243.166.5:11443
+    cpaas.io/registry-address: 172.27.244.137:11443
 spec:
   clusterNetwork:
     pods:
@@ -353,7 +353,7 @@ spec:
 ```yaml
 # SeedImage
 spec:
-  baseImage: 10.243.166.5:11443/tkestack/baremetal-base-image-iso:v4.4.0-1-1.35.6-acp.1
+  baseImage: 172.27.244.137:11443/tkestack/kubeos-iso:baremetal
 ```
 
 真实盘符不要写进 YAML。每台 Worker Live ISO 起来后，把本机系统盘软链接到这个路径，安装重启后再把 BMC 启动项改成从磁盘启动。不要改 `${System Information/UUID}` 这类 Elemental 表达式。
@@ -380,7 +380,7 @@ readlink -f /dev/elemental-install-target
 
 硬盘已有旧系统时见第 9.2 节。
 
-3. **先配 VLAN，再让主机注册。** IP 配在 `eth0.329`，不要配在 `eth0`。不要用 VIP `10.243.166.12`。默认网卡/默认 IP 配不上见第 9.1 节。
+3. **先配 VLAN，再让主机注册。** IP 配在 `eth0.329`，不要配在 `eth0`。不要用 VIP `156.3.1.95`。默认网卡/默认 IP 配不上见第 9.1 节。
 
 ```bash
 sudo nmcli con add type vlan ifname eth0.329 con-name vlan329 \
@@ -512,7 +512,7 @@ kubectl --kubeconfig workload-kubeconfig get nodes -o wide
 
 - 不要把 IP 配在 `eth0` 上。
 - 不要把 connection 名 `vlan329` 填进 Pool 的 `networkDevice`；填接口名 `eth0.329`。
-- 不要用 VIP `10.243.166.12`。
+- 不要用 VIP `156.3.1.95`。
 - 交换机没有把 eth0/eth1 绑成一组时，不要走 `bond0.329`。
 - 不要对 `sr*`、`loop*` 动手。
 

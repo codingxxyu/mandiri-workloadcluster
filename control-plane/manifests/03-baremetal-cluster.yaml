@@ -10,7 +10,7 @@ metadata:
 spec:
   controlPlaneLoadBalancer:
     type: External
-    host: 10.243.166.12
+    host: 156.3.1.95
     port: 6443
   networkType: kube-ovn
   networkDevice: eth0

@@ -3,19 +3,17 @@
 namespace: cpaas-system
 cluster_name: olvm-workloadcluster
 # Values from the ACP OS support matrix for ACP v4.4.0.
-# OS image tag follows the 4.3.2 naming pattern; confirm against
-# the imported image before apply.
 acp_version: v4.4.0
 kubernetes_version: v1.35.6-acp.1
 etcd_version: v3.6.13-acp.0
 coredns_image_tag: 1.14.3-v4.4.6
 architecture: linux/amd64
 registry:
-  address: 10.243.166.5:11443
-  base_image: 10.243.166.5:11443/tkestack/baremetal-base-image:v4.4.0-1-1.35.6-acp.1
-  base_image_iso: 10.243.166.5:11443/tkestack/baremetal-base-image-iso:v4.4.0-1-1.35.6-acp.1
+  address: 172.27.244.137:11443
+  base_image: 172.27.244.137:11443/tkestack/kubeos-rootfs:baremetal
+  base_image_iso: 172.27.244.137:11443/tkestack/kubeos-iso:baremetal
 network:
-  api_host: 10.243.166.12
+  api_host: 156.3.1.95
   api_port: 6443
   pods_cidr: 100.13.0.0/16
   services_cidr: 100.14.0.0/16
@@ -56,7 +54,7 @@ workers:
   # IP belongs on eth0.329, never on eth0. Mask/gateway/DNS from
   # the customer node sheet. 10.243.166.6 is that node's address;
   # if it is already in use, pick a free address in /26. Do not
-  # use VIP 10.243.166.12.
+  # use VIP 156.3.1.95.
   vlan_id: 329
   network_device: eth0.329
   gateway: 10.243.166.1
